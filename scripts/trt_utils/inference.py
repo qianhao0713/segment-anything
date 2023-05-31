@@ -61,17 +61,11 @@ class TRTInference(object):
         input_volume = trt.volume(model_utils.ModelData.INPUT_SHAPE)
         self.numpy_array = np.zeros((self.trt_engine.max_batch_size, input_volume))
         
-    def torch_inference(self, dict_input, print_delay=False):
-        t=time.time()
+    def torch_inference(self, dict_input):
         for i, binding in enumerate(self.trt_engine):
             if self.trt_engine.binding_is_input(binding):
                 self.inputs[i][...] = dict_input[binding]
-                # self.inputs[i].copy_(dict_input[binding])
-        t1=time.time()
         common.do_inference_torch(self.context, bindings=self.bindings)
-        t2=time.time()
-        if print_delay:
-            print("d2d time is: %2.3f, infer time is: %2.3f" % (t1-t, t2-t1))
         return self.outputs
 
     def inference(self, dict_input, h2d=True, d2h=True, device_input = [], device_input_size = []):

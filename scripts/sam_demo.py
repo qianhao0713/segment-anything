@@ -73,7 +73,7 @@ def parse_args():
     parser.add_argument('--decoder_trt', type=str, default='weights/sam_single_mask_mask_decoder_fold.trt', help='sam mask decoder trt path')
     # parser.add_argument('--decoder_trt', type=str, default='weights/sam_mask_decoder_fold.trt', help='sam mask decoder trt path')
     parser.add_argument('--points_per_side', type=int, default=32, help='point input num in one-side of a picture for mask-generation, total num is n_points * n_points')
-    parser.add_argument('--points_per_batch', type=int, default=128, help='point input in one batch for mask-generation')
+    parser.add_argument('--points_per_batch', type=int, default=64, help='point input in one batch for mask-generation')
     parser.add_argument('--box_nms_thresh', type=float, default=0.77)
     args = parser.parse_args()
     return args
@@ -97,6 +97,8 @@ class SAMTRT(object):
         self.pixel_std = torch.Tensor(pixel_std).view(-1, 1, 1).to(self.device)
         self.point_per_side = 32 if not args.points_per_side else args.points_per_side 
         self.points_per_batch = 64 if not args.points_per_batch else args.points_per_batch
+        self.partial_width = 1.0
+        self.partial_height = -0.5
         self.use_trt=use_trt  
 
     def load_sam_trt(self):
@@ -182,7 +184,7 @@ class SAMTRT(object):
         return iou_preds.detach(), masks.detach()
         
     def infer_grid_coord(self, image):
-        point_grids = build_point_grid(self.point_per_side)
+        point_grids = build_point_grid(self.point_per_side, partial_y=self.partial_width, partial_x=self.partial_height)
         points_scale = np.array(self.origin_image_shape)[None, :]
         coord_grids = torch.as_tensor((point_grids * points_scale)[:,None,:], dtype=torch.float32, device=self.device)
         label_input = torch.ones([self.points_per_batch, 1], dtype=torch.float32, device=self.device)
