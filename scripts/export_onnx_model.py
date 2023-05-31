@@ -106,6 +106,7 @@ def run_export(
 ):
     print("Loading model...")
     sam = sam_model_registry[model_type](checkpoint=checkpoint)
+    vit_encoder = sam.image_encoder
 
     onnx_model = SamOnnxModel(
         model=sam,
@@ -120,49 +121,66 @@ def run_export(
                 m.approximate = "tanh"
 
     dynamic_axes = {
-        "point_coords": {1: "num_points"},
-        "point_labels": {1: "num_points"},
+        "point_coords": {0: "num_batches", 1: "num_points"},
+        "point_labels": {0: "num_batches", 1: "num_points"},
     }
 
     embed_dim = sam.prompt_encoder.embed_dim
     embed_size = sam.prompt_encoder.image_embedding_size
     mask_input_size = [4 * x for x in embed_size]
-    dummy_inputs = {
+    dummy_inputs2 = {
         "image_embeddings": torch.randn(1, embed_dim, *embed_size, dtype=torch.float),
-        "point_coords": torch.randint(low=0, high=1024, size=(1, 5, 2), dtype=torch.float),
-        "point_labels": torch.randint(low=0, high=4, size=(1, 5), dtype=torch.float),
+        "point_coords": torch.randint(low=0, high=1024, size=(1, 2, 2), dtype=torch.float),
+        "point_labels": torch.randint(low=0, high=4, size=(1, 2), dtype=torch.float),
         "mask_input": torch.randn(1, 1, *mask_input_size, dtype=torch.float),
         "has_mask_input": torch.tensor([1], dtype=torch.float),
-        "orig_im_size": torch.tensor([1500, 2250], dtype=torch.float),
+        "orig_im_size": torch.tensor([1200, 1800], dtype=torch.int32),
     }
-
-    _ = onnx_model(**dummy_inputs)
+    dummy_inputs = {
+        "image": torch.randn(1, 3, 1024, 1024, dtype=torch.float)
+    }
+    _ = onnx_model(**dummy_inputs2)
 
     output_names = ["masks", "iou_predictions", "low_res_masks"]
 
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=torch.jit.TracerWarning)
         warnings.filterwarnings("ignore", category=UserWarning)
-        with open(output, "wb") as f:
-            print(f"Exporting onnx model to {output}...")
+        mask_decoder_output = output+'_mask_decoder.onnx'
+        image_encoder_output = output+'_image_encoder.onnx'
+        with open(mask_decoder_output, "wb") as f:
+            print(f"Exporting onnx model to {mask_decoder_output}...")
             torch.onnx.export(
                 onnx_model,
-                tuple(dummy_inputs.values()),
+                tuple(dummy_inputs2.values()),
                 f,
                 export_params=True,
                 verbose=False,
                 opset_version=opset,
                 do_constant_folding=True,
-                input_names=list(dummy_inputs.keys()),
+                input_names=list(dummy_inputs2.keys()),
                 output_names=output_names,
                 dynamic_axes=dynamic_axes,
             )
+        with open(image_encoder_output, "wb") as f:
+            print(f"Exporting onnx model to {image_encoder_output}...")
+            torch.onnx.export(
+                vit_encoder,
+                tuple(dummy_inputs.values()),
+                f,
+                export_params=True,
+                verbose=True,
+                opset_version=opset,
+                do_constant_folding=True,
+                input_names=list(dummy_inputs.keys())
+                # use_external_data_format=True
+            )
 
     if onnxruntime_exists:
-        ort_inputs = {k: to_numpy(v) for k, v in dummy_inputs.items()}
+        ort_inputs = {k: to_numpy(v) for k, v in dummy_inputs2.items()}
         # set cpu provider default
         providers = ["CPUExecutionProvider"]
-        ort_session = onnxruntime.InferenceSession(output, providers=providers)
+        ort_session = onnxruntime.InferenceSession(mask_decoder_output, providers=providers)
         _ = ort_session.run(None, ort_inputs)
         print("Model has successfully been run with ONNXRuntime.")
 

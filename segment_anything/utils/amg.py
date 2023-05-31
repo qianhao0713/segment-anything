@@ -153,6 +153,10 @@ def area_from_rle(rle: Dict[str, Any]) -> int:
     return sum(rle["counts"][1::2])
 
 
+def area_from_mask(mask: torch.Tensor) -> int:
+    return mask.sum().item()
+
+
 def calculate_stability_score(
     masks: torch.Tensor, mask_threshold: float, threshold_offset: float
 ) -> torch.Tensor:
