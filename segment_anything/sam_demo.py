@@ -9,7 +9,7 @@ from segment_anything import sam_model_registry
 from torchvision.ops.boxes import batched_nms
 import cv2
 import matplotlib.pyplot as plt
-from trt_utils import inference as trt_infer
+from .trt_utils import inference as trt_infer
 import argparse
 import os, sys, time
 import pycuda.driver as cuda
@@ -68,7 +68,8 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--single_coord_input', action='store_true')
     parser.add_argument('--exclude_postprocess', action='store_true')
-    parser.add_argument('--device', type=str, default='0')
+    # parser.add_argument('--device', type=str, default='0')
+    parser.add_argument('--device', type=str, default='cuda:0')
     parser.add_argument('--encoder_trt', type=str, default='weights/sam_image_encoder.trt', help='sam image encoder trt path')
     parser.add_argument('--decoder_trt', type=str, default='weights/sam_single_mask_mask_decoder_fold.trt', help='sam mask decoder trt path')
     # parser.add_argument('--decoder_trt', type=str, default='weights/sam_mask_decoder_fold.trt', help='sam mask decoder trt path')
@@ -83,7 +84,8 @@ class SAMTRT(object):
         if args.device == 'cpu':
             self.device = torch.device('cpu')
         else:
-            self.device = torch.device('cuda', int(args.device))
+            # self.device = torch.device('cuda', int(args.device))
+            self.device = torch.device(args.device)
         self.encoder_trt = args.encoder_trt
         self.decoder_trt = args.decoder_trt
         self.generate_masks = False if args.single_coord_input else True
@@ -141,13 +143,20 @@ class SAMTRT(object):
         input_image_torch = F.pad(input_image_torch, (0, padw, 0, padh))
         return input_image_torch
     
-    def prepare_image(self, image_path):
-        ori_image = cv2.imread(image_path)
+    # def prepare_image(self, image_path):
+    #     ori_image = cv2.imread(image_path)
+    #     ori_image = cv2.cvtColor(ori_image, cv2.COLOR_BGR2RGB)
+    #     image = self._pre_process(ori_image)
+    #     self.transf = ResizeLongestSide(self.image_size)
+    #     return ori_image, image
+
+    def prepare_image(self, ori_image):
+
         ori_image = cv2.cvtColor(ori_image, cv2.COLOR_BGR2RGB)
         image = self._pre_process(ori_image)
         self.transf = ResizeLongestSide(self.image_size)
-        return ori_image, image
-    
+        return image
+
     def infer_vit_embedding(self, ort_inputs1):
         if self.use_trt:
             return self.vit_embedding_engine.torch_inference(ort_inputs1)[0]
