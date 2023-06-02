@@ -9,11 +9,8 @@ from segment_anything import sam_model_registry
 from torchvision.ops.boxes import batched_nms
 import cv2
 import matplotlib.pyplot as plt
-from .trt_utils import inference as trt_infer
-import argparse
-import os, sys, time
-import pycuda.driver as cuda
-import pycuda.autoinit
+from segment_anything.trt_utils import inference as trt_infer
+import os,json,time
 
 def get_preprocess_shape(oldh: int, oldw: int, long_side_length: int) -> Tuple[int, int]:
     """
@@ -30,13 +27,13 @@ def show_mask(mask, ax):
     h, w = mask.shape[-2:]
     mask_image = mask[:,0,:,:].reshape(h, w, 1) * color.reshape(1, 1, -1)
     ax.imshow(mask_image)
-    
+
 def show_points(coords, labels, ax, marker_size=375):
     pos_points = coords[labels==1]
     neg_points = coords[labels==0]
     ax.scatter(pos_points[:, 0], pos_points[:, 1], color='green', marker='*', s=marker_size, edgecolor='white', linewidth=1.25)
     ax.scatter(neg_points[:, 0], neg_points[:, 1], color='red', marker='*', s=marker_size, edgecolor='white', linewidth=1.25)
-    
+
 def show_box(box, ax, color_index):
     colors = ['r', 'g', 'y', 'b', 'c']
     color_index = color_index % len(colors)
@@ -63,44 +60,38 @@ def process_data(data):
     # Threshold masks and calculate boxes
     data["masks"] = data["masks"] > mask_threshold
     data["boxes"] = batched_mask_to_box(data["masks"])
-    
-def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--single_coord_input', action='store_true')
-    parser.add_argument('--exclude_postprocess', action='store_true')
-    # parser.add_argument('--device', type=str, default='0')
-    parser.add_argument('--device', type=str, default='cuda:0')
-    parser.add_argument('--encoder_trt', type=str, default='weights/sam_image_encoder.trt', help='sam image encoder trt path')
-    parser.add_argument('--decoder_trt', type=str, default='weights/sam_single_mask_mask_decoder_fold.trt', help='sam mask decoder trt path')
-    # parser.add_argument('--decoder_trt', type=str, default='weights/sam_mask_decoder_fold.trt', help='sam mask decoder trt path')
-    parser.add_argument('--points_per_side', type=int, default=32, help='point input num in one-side of a picture for mask-generation, total num is n_points * n_points')
-    parser.add_argument('--points_per_batch', type=int, default=64, help='point input in one batch for mask-generation')
-    parser.add_argument('--box_nms_thresh', type=float, default=0.77)
-    args = parser.parse_args()
-    return args
+
 
 class SAMTRT(object):
     def __init__(self, args, use_trt=True):
         if args.device == 'cpu':
             self.device = torch.device('cpu')
+        elif args.device.isdigit():
+            self.device = torch.device('cuda', int(args.device))
         else:
-            # self.device = torch.device('cuda', int(args.device))
             self.device = torch.device(args.device)
-        self.encoder_trt = args.encoder_trt
-        self.decoder_trt = args.decoder_trt
-        self.generate_masks = False if args.single_coord_input else True
-        self.need_postprocess = False if args.exclude_postprocess else True
-        self.origin_image_shape = [1200, 1800]
-        # self.origin_image_shape = [534, 800]
+        self.conf_path = '%s/samtrt_conf.json' % os.path.dirname(__file__)
+        trt_conf = {}
+        if hasattr(args, 'conf_path') and args.conf_path is not None:
+            self.conf_path = "%s/%s" % (os.path.dirname(__file__), args.conf_path)
+        with open(self.conf_path) as conf_file:
+            trt_conf = json.load(conf_file)
+        self.encoder_trt = trt_conf.get('encoder_trt')
+        self.decoder_trt = trt_conf.get('decoder_trt')
+        self.origin_image_shape = trt_conf.get('origin_image_shape')
+        assert self.encoder_trt is not None and self.decoder_trt is not None, "tensorRT engine file not given"
+        assert self.origin_image_shape is not None, "origin_image_shape not given"
+        self.generate_masks = trt_conf.get('generate_mask', True)
+        self.point_per_side = trt_conf.get('point_per_side', 32) 
+        self.points_per_batch = trt_conf.get('point_per_batch', 64)
+        self.partial_width = trt_conf.get('partial_width', 1.0)
+        self.partial_height = trt_conf.get('partial_height', 1.0)
+        self.print_infer_delay = trt_conf.get('print_infer_delay', False)
         self.image_size = 1024
-        pixel_mean=[123.675, 116.28, 103.53],
-        pixel_std=[58.395, 57.12, 57.375]
+        pixel_mean = [123.675, 116.28, 103.53]
+        pixel_std = [58.395, 57.12, 57.375]
         self.pixel_mean = torch.Tensor(pixel_mean).view(-1, 1, 1).to(self.device)
         self.pixel_std = torch.Tensor(pixel_std).view(-1, 1, 1).to(self.device)
-        self.point_per_side = 32 if not args.points_per_side else args.points_per_side 
-        self.points_per_batch = 64 if not args.points_per_batch else args.points_per_batch
-        self.partial_width = 1.0
-        self.partial_height = -0.5
         self.use_trt=use_trt  
 
     def load_sam_trt(self):
@@ -142,16 +133,8 @@ class SAMTRT(object):
         padw = self.image_size - w
         input_image_torch = F.pad(input_image_torch, (0, padw, 0, padh))
         return input_image_torch
-    
-    # def prepare_image(self, image_path):
-    #     ori_image = cv2.imread(image_path)
-    #     ori_image = cv2.cvtColor(ori_image, cv2.COLOR_BGR2RGB)
-    #     image = self._pre_process(ori_image)
-    #     self.transf = ResizeLongestSide(self.image_size)
-    #     return ori_image, image
 
     def prepare_image(self, ori_image):
-
         ori_image = cv2.cvtColor(ori_image, cv2.COLOR_BGR2RGB)
         image = self._pre_process(ori_image)
         self.transf = ResizeLongestSide(self.image_size)
@@ -181,7 +164,7 @@ class SAMTRT(object):
             )
             masks = self.sam.postprocess_masks(
                 low_res_masks,
-                input_size=[1024, 1024],
+                input_size=[self.image_size, self.image_size],
                 original_size=self.origin_image_shape,
             )
             best_idx = torch.argmax(iou_preds, dim=1)
@@ -220,7 +203,7 @@ class SAMTRT(object):
         res = []
         for (coord_input,) in batch_iterator(self.points_per_batch, coord_grids):
             t1 = time.time()
-            coord_input = self.transf.apply_coords(coord_input, image.shape[:2])
+            coord_input = self.transf.apply_coords(coord_input, image.shape[-2:])
             ort_inputs2["point_coords"] = coord_input
             iou_preds, masks = self.infer_mask(ort_inputs2)
             batch_data = MaskData(
@@ -255,7 +238,8 @@ class SAMTRT(object):
             }
             res.append(ann)
         post_process_time2 = time.time()-t4
-        print("vit_infer: %2.3f, mask_infer: %2.3f, postprocess: %2.3f" % (vit_embedding_time, mask_decoder_time, post_process_time1 + post_process_time2))
+        if self.print_infer_delay:
+            print("vit_infer: %2.3f, mask_infer: %2.3f, postprocess: %2.3f" % (vit_embedding_time, mask_decoder_time, post_process_time1 + post_process_time2))
         return res
 
     def infer_single_coord(self, image, coord, label):
@@ -285,7 +269,7 @@ class SAMTRT(object):
         iou_preds, masks = self.infer_mask(ort_inputs2)
         return iou_preds, masks
     
-    def show_result(self, masks=None, image=None, point=None, label=None, anns=None):
+    def show_result(self, masks=None, image=None, point=None, label=None, anns=None, out_path=None):
         plt.figure(figsize=(10, 10))
         plt.imshow(image)
         if self.generate_masks:
@@ -296,61 +280,17 @@ class SAMTRT(object):
             ax.set_autoscale_on(False)
             img = np.ones((sorted_anns[0]['segmentation'].shape[0], sorted_anns[0]['segmentation'].shape[1], 4))
             img[:,:,3] = 0
-            for ann in sorted_anns:
+            for i, ann in enumerate(sorted_anns):
                 m = ann['segmentation']
                 color_mask = np.concatenate([np.random.random(3), [0.35]])
                 img[m] = color_mask
-            for i, ann in enumerate(sorted_anns):
                 show_box(ann['bbox'], ax, i)
             ax.imshow(img)
             plt.axis('on')
-            plt.savefig('sam_grid_demo.png')
+            plt.savefig(out_path)
         else:
             masks = masks > 0.0
             show_mask(masks, plt.gca())
             show_points(point, label, plt.gca())
             plt.axis('on')
-            plt.savefig('sam_single_demo.png')
-
-def test_single():
-    args = parse_args()
-    point = np.array([[500, 375]])
-    label = np.array([1])
-
-    print("use sam tensort-rt")
-    sam_trt = SAMTRT(args, use_trt=True)
-    sam_trt.generate_masks = False
-    sam_trt.load_sam()
-    origin_image, image = sam_trt.prepare_image('notebooks/images/truck.jpg')
-
-    iou_preds, masks = sam_trt.infer_single_coord(image, point, label)
-    
-    sam_trt.show_result(masks, origin_image, point, label)
-
-    print("use sam base")
-    sam_trt = SAMTRT(args, use_trt=False)
-    sam_trt.generate_masks = False
-    sam_trt.load_sam()
-    origin_image, image = sam_trt.prepare_image('notebooks/images/truck.jpg')
-
-    iou_preds, masks = sam_trt.infer_single_coord(image, point, label)
-
-def test_grids():
-    args = parse_args()
-    print("use sam tensort-rt")
-    sam_trt = SAMTRT(args, use_trt=True)
-    sam_trt.load_sam()
-    origin_image, image = sam_trt.prepare_image('notebooks/images/truck.jpg')
-    res = sam_trt.infer_grid_coord(image)
-    sam_trt.show_result(image=origin_image, anns=res)
-
-    print("use sam base")
-    sam_trt = SAMTRT(args, use_trt=False) 
-    sam_trt.load_sam()
-    origin_image, image = sam_trt.prepare_image('notebooks/images/truck.jpg')
-    res=sam_trt.infer_grid_coord(image)
-        
-if __name__ == '__main__':
-    test_grids()
-
-    
+            plt.savefig(out_path)

@@ -1,0 +1,12 @@
+{
+    "generate_masks": true,
+    "encoder_trt": "weights/sam_image_encoder.trt",
+    "decoder_trt": "weights/sam_single_mask_mask_decoder_fold.trt",
+    "points_per_side": 32,
+    "points_per_batch": 64,
+    "box_nms_thresh": 0.77,
+    "origin_image_shape": [1080, 1920],
+    "partial_width": 1.0,
+    "partial_height": 1.0,
+    "print_infer_delay": true
+}
