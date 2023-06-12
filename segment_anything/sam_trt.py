@@ -63,17 +63,17 @@ def process_data(data):
 
 
 class SAMTRT(object):
-    def __init__(self, args, use_trt=True):
-        if args.device == 'cpu':
+    def __init__(self, device, conf_path=None, use_trt=True):
+        if device == 'cpu':
             self.device = torch.device('cpu')
-        elif args.device.isdigit():
-            self.device = torch.device('cuda', int(args.device))
+        elif device.isdigit():
+            self.device = torch.device('cuda', int(device))
         else:
-            self.device = torch.device(args.device)
+            self.device = torch.device(device)
         self.conf_path = '%s/samtrt_conf.json' % os.path.dirname(__file__)
         trt_conf = {}
-        if hasattr(args, 'conf_path') and args.conf_path is not None:
-            self.conf_path = "%s/%s" % (os.path.dirname(__file__), args.conf_path)
+        if conf_path is not None:
+            self.conf_path = "%s/%s" % (os.path.dirname(__file__), conf_path)
         with open(self.conf_path) as conf_file:
             trt_conf = json.load(conf_file)
         self.encoder_trt = trt_conf.get('encoder_trt')

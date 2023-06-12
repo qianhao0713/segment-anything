@@ -24,7 +24,7 @@ def test_single():
     label = np.array([1])
 
     print("use sam tensort-rt")
-    sam_trt = SAMTRT(args, use_trt=True)
+    sam_trt = SAMTRT(args.device, use_trt=True)
     sam_trt.generate_masks = False
     sam_trt.load_sam()
     ori_image = cv2.imread('notebooks/images/truck.jpg')
@@ -34,7 +34,7 @@ def test_single():
     sam_trt.show_result(masks, ori_image, point, label, 'truck_single_coord.png')
 
     print("use sam base")
-    sam_trt = SAMTRT(args, use_trt=False)
+    sam_trt = SAMTRT(args.device, use_trt=False)
     sam_trt.generate_masks = False
     sam_trt.load_sam()
     ori_image = cv2.imread('notebooks/images/truck.jpg')
@@ -46,7 +46,7 @@ def test_grids():
     args = parse_args()
     
     print("use sam tensort-rt")
-    sam_trt = SAMTRT(args, use_trt=True)
+    sam_trt = SAMTRT(args.device, use_trt=True)
     sam_trt.load_sam()
     ori_image = cv2.imread('notebooks/images/frame1.jpg')
     ori_image = cv2.cvtColor(ori_image, cv2.COLOR_BGR2RGB)
@@ -55,7 +55,7 @@ def test_grids():
     sam_trt.show_result(image=ori_image, anns=res, out_path='frame1_masks.png')
 
     # print("use sam base")
-    # sam_trt = SAMTRT(args, use_trt=False)
+    # sam_trt = SAMTRT(args.device, use_trt=False)
     # sam_trt.load_sam()
     # ori_image = cv2.imread('notebooks/images/truck.jpg')
     # print(ori_image.shape)
