@@ -179,7 +179,7 @@ def run_export(
     if onnxruntime_exists:
         ort_inputs = {k: to_numpy(v) for k, v in dummy_inputs2.items()}
         # set cpu provider default
-        providers = ["CPUExecutionProvider"]
+        providers = ["TensorrtExecutionProvider", "CUDAExecutionProvider", "CPUExecutionProvider"]
         ort_session = onnxruntime.InferenceSession(mask_decoder_output, providers=providers)
         _ = ort_session.run(None, ort_inputs)
         print("Model has successfully been run with ONNXRuntime.")
@@ -204,16 +204,37 @@ if __name__ == "__main__":
 
     if args.quantize_out is not None:
         assert onnxruntime_exists, "onnxruntime is required to quantize the model."
-        from onnxruntime.quantization import QuantType  # type: ignore
-        from onnxruntime.quantization.quantize import quantize_dynamic  # type: ignore
+        from onnxruntime.quantization import QuantType, QuantFormat  # type: ignore
+        from onnxruntime.quantization.quantize import quantize_dynamic, quantize_static  # type: ignore
+        from onnxruntime.quantization.calibrate import CalibrationMethod
+        from segment_anything.calib.calib_dataloader import SamCalibrationDataReader
 
         print(f"Quantizing model and writing to {args.quantize_out}...")
-        quantize_dynamic(
-            model_input=args.output,
-            model_output=args.quantize_out,
-            optimize_model=True,
-            per_channel=False,
-            reduce_range=False,
-            weight_type=QuantType.QUInt8,
+        calib_loader = SamCalibrationDataReader()
+        quantize_static(
+            model_input='%s_mask_decoder.onnx' % args.output,
+            model_output='%s_mask_decoder_int8.onnx' % args.quantize_out,
+            calibration_data_reader=calib_loader,
+            quant_format=QuantFormat.QDQ,
+            activation_type=QuantType.QInt8,
+            weight_type=QuantType.QInt8,
+            optimize_model=False,
+            use_external_data_format=False,
+            calibrate_method=CalibrationMethod.MinMax,
+            extra_options={
+                # "CalibTensorRangeSymmetric": True,
+		        "ForceQuantizeNoInputCheck": True,
+                "ActivationSymmetric":True,
+                "WeightSymmetric":True,
+                "QuantizeBias": False
+            }
         )
+        # quantize_dynamic(
+        #     model_input=args.output,
+        #     model_output=args.quantize_out,
+        #     optimize_model=True,
+        #     per_channel=False,
+        #     reduce_range=False,
+        #     weight_type=QuantType.QUInt8,
+        # )
         print("Done!")

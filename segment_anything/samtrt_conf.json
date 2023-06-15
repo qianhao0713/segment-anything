@@ -1,7 +1,7 @@
 {
     "generate_masks": true,
-    "encoder_trt": "weights/sam_image_encoder.trt",
-    "decoder_trt": "weights/sam_single_mask_mask_decoder_fold.trt",
+    "encoder_trt": "weights/sam_vit_l_single_image_encoder.trt",
+    "decoder_trt": "weights/sam_vit_l_single_mask_decoder.trt",
     "points_per_side": 32,
     "points_per_batch": 64,
     "box_nms_thresh": 0.77,
