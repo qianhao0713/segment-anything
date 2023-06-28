@@ -25,7 +25,7 @@ def get_preprocess_shape(oldh: int, oldw: int, long_side_length: int) -> Tuple[i
 def show_mask(mask, ax):
     color = np.array([30/255, 144/255, 255/255, 0.6])
     h, w = mask.shape[-2:]
-    mask_image = mask[:,0,:,:].reshape(h, w, 1) * color.reshape(1, 1, -1)
+    mask_image = mask[:,0,:,:].reshape(h, w, 1).cpu() * color.reshape(1, 1, -1)
     ax.imshow(mask_image)
 
 def show_points(coords, labels, ax, marker_size=375):
@@ -76,13 +76,14 @@ class SAMTRT(object):
             self.conf_path = "%s/%s" % (os.path.dirname(__file__), conf_path)
         with open(self.conf_path) as conf_file:
             trt_conf = json.load(conf_file)
-        self.encoder_trt = trt_conf.get('encoder_trt')
-        self.decoder_trt = trt_conf.get('decoder_trt')
+        root_dir = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
+        self.encoder_trt = "%s/%s" % (root_dir, trt_conf.get('encoder_trt'))
+        self.decoder_trt = "%s/%s" % (root_dir, trt_conf.get('decoder_trt'))
         self.origin_image_shape = trt_conf.get('origin_image_shape')
         assert self.encoder_trt is not None and self.decoder_trt is not None, "tensorRT engine file not given"
         assert self.origin_image_shape is not None, "origin_image_shape not given"
         self.generate_masks = trt_conf.get('generate_mask', True)
-        self.point_per_side = trt_conf.get('point_per_side', 32) 
+        self.point_per_side = trt_conf.get('point_per_side', 32)
         self.points_per_batch = trt_conf.get('point_per_batch', 64)
         self.partial_width = trt_conf.get('partial_width', 1.0)
         self.partial_height = trt_conf.get('partial_height', 1.0)
@@ -92,7 +93,7 @@ class SAMTRT(object):
         pixel_std = [58.395, 57.12, 57.375]
         self.pixel_mean = torch.Tensor(pixel_mean).view(-1, 1, 1).to(self.device)
         self.pixel_std = torch.Tensor(pixel_std).view(-1, 1, 1).to(self.device)
-        self.use_trt=use_trt  
+        self.use_trt=use_trt
 
     def load_sam_trt(self):
         dynamic_shape = {}
@@ -108,16 +109,17 @@ class SAMTRT(object):
         self.mask_decoder_engine = trt_infer.TRTInference(trt_engine_path=self.decoder_trt, dynamic_shape=dynamic_shape, dynamic_shape_value=dynamic_shape_value, is_torch_infer=True, device=self.device)
 
     def load_sam_base(self):
-        checkpoint = "weights/sam_vit_l_0b3195.pth"
+        cur_dir = os.path.abspath(os.path.dirname(__file__))
+        checkpoint = "%s/../weights/sam_vit_l_0b3195.pth" % cur_dir
         model_type = "vit_l"
         self.sam = sam_model_registry[model_type](checkpoint=checkpoint).to(self.device)
-        
+
     def load_sam(self):
         if self.use_trt:
             self.load_sam_trt()
         else:
             self.load_sam_base()
-        
+
     def _pre_process(self, image):
         target_size = get_preprocess_shape(image.shape[0], image.shape[1], self.image_size)
         input_image = np.array(resize(to_pil_image(image), target_size))
@@ -135,7 +137,7 @@ class SAMTRT(object):
         return input_image_torch
 
     def prepare_image(self, ori_image):
-        ori_image = cv2.cvtColor(ori_image, cv2.COLOR_BGR2RGB)
+        # ori_image = cv2.cvtColor(ori_image, cv2.COLOR_BGR2RGB)
         image = self._pre_process(ori_image)
         self.transf = ResizeLongestSide(self.image_size)
         return image
@@ -145,16 +147,20 @@ class SAMTRT(object):
             return self.vit_embedding_engine.torch_inference(ort_inputs1)[0]
         else:
             return self.sam.image_encoder(ort_inputs1["image"])
-        
+
     def infer_mask(self, ort_inputs2):
         if self.use_trt:
             _, iou_preds, masks = self.mask_decoder_engine.torch_inference(ort_inputs2)
         else:
+            torch.cuda.synchronize()
+            t1=time.time()
             sparse_embeddings, dense_embeddings = self.sam.prompt_encoder(
                 points=(ort_inputs2["point_coords"], ort_inputs2["point_labels"]),
                 boxes=None,
                 masks=None
             )
+            torch.cuda.synchronize()
+            t2=time.time()
             low_res_masks, iou_preds = self.sam.mask_decoder(
                 image_embeddings=ort_inputs2["image_embeddings"],
                 image_pe=self.sam.prompt_encoder.get_dense_pe(),
@@ -162,19 +168,24 @@ class SAMTRT(object):
                 dense_prompt_embeddings=dense_embeddings,
                 multimask_output=True,
             )
+            torch.cuda.synchronize()
+            t3=time.time()
             masks = self.sam.postprocess_masks(
                 low_res_masks,
                 input_size=[self.image_size, self.image_size],
                 original_size=self.origin_image_shape,
             )
+            torch.cuda.synchronize()
+            t4=time.time()
+            print("prompt_encoder: %2.3f, mask_decoder: %2.3f, postprocess: %2.3f" % (t2-t1, t3-t2, t4-t3) )
             best_idx = torch.argmax(iou_preds, dim=1)
             masks = masks[torch.arange(masks.shape[0]), best_idx, :, :].unsqueeze(1)
             iou_preds = iou_preds[torch.arange(masks.shape[0]), best_idx].unsqueeze(1)
             masks = masks.detach()
-            
+
         torch.cuda.synchronize()
         return iou_preds.detach(), masks.detach()
-        
+
     def infer_grid_coord(self, image):
         point_grids = build_point_grid(self.point_per_side, partial_y=self.partial_width, partial_x=self.partial_height)
         points_scale = np.array(self.origin_image_shape)[None, :]
@@ -247,7 +258,7 @@ class SAMTRT(object):
         label_input = np.concatenate([label, np.array([-1])], axis=0)[None, :].astype(np.float32)
 
         coord_input = self.transf.apply_coords(coord_input, self.origin_image_shape).astype(np.float32)
-        
+
         coord_input = torch.as_tensor(coord_input, device=self.device)
         label_input = torch.as_tensor(label_input, device=self.device)
 
@@ -264,11 +275,18 @@ class SAMTRT(object):
             "has_mask_input": has_mask_input,
             "orig_im_size": orig_im_size
         }
+        t0=time.time()
         vit_embedding = self.infer_vit_embedding(ort_inputs1)
         ort_inputs2["image_embeddings"] = vit_embedding
+        t1=time.time()
         iou_preds, masks = self.infer_mask(ort_inputs2)
+        t2=time.time()
+        vit_infer_time = t1-t0
+        mask_infer_time = t2-t1
+        if self.print_infer_delay:
+            print("vit_infer: %2.3f, mask_infer: %2.3f" % (vit_infer_time, mask_infer_time))
         return iou_preds, masks
-    
+
     def show_result(self, masks=None, image=None, point=None, label=None, anns=None, out_path=None):
         plt.figure(figsize=(10, 10))
         plt.imshow(image)

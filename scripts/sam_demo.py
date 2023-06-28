@@ -6,22 +6,30 @@ from segment_anything.sam_trt import SAMTRT
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--device', type=str, default='cuda:0')
+<<<<<<< Updated upstream
+=======
+    parser.add_argument('--trt_mode', type=str, default='grids')
+>>>>>>> Stashed changes
     args = parser.parse_args()
     return args
 
-def test_single():
-    args = parse_args()
-    point = np.array([[500, 375]])
+def test_single(args):
+    point = np.array([[1000, 800]])
     label = np.array([1])
 
     print("use sam tensort-rt")
+<<<<<<< Updated upstream
     sam_trt = SAMTRT(args.device, use_trt=True)
+=======
+    sam_trt = SAMTRT(device=args.device, use_trt=True)
+>>>>>>> Stashed changes
     sam_trt.generate_masks = False
     sam_trt.load_sam()
-    ori_image = cv2.imread('notebooks/images/truck.jpg')
+    ori_image = cv2.imread('notebooks/images/frame4.jpg')
+    ori_image = cv2.cvtColor(ori_image, cv2.COLOR_BGR2RGB)
     image = sam_trt.prepare_image(ori_image)
-
     iou_preds, masks = sam_trt.infer_single_coord(image, point, label)
+<<<<<<< Updated upstream
     sam_trt.show_result(masks, ori_image, point, label, 'truck_single_coord.png')
 
     print("use sam base")
@@ -30,29 +38,50 @@ def test_single():
     sam_trt.load_sam()
     ori_image = cv2.imread('notebooks/images/truck.jpg')
     image = sam_trt.prepare_image(ori_image)
+=======
+    print(masks.shape)
+    sam_trt.show_result(masks, ori_image, point, label, out_path='frame4_single.png')
+>>>>>>> Stashed changes
 
-    iou_preds, masks = sam_trt.infer_single_coord(image, point, label)
+    # print("use sam base")
+    # sam_trt = SAMTRT(device=args.device, use_trt=False)
+    # sam_trt.generate_masks = False
+    # sam_trt.load_sam()
+    # ori_image = cv2.imread('notebooks/images/frame1.jpg')
+    # ori_image = cv2.cvtColor(ori_image, cv2.COLOR_BGR2RGB)
+    # image = sam_trt.prepare_image(ori_image)
+    # iou_preds, masks = sam_trt.infer_single_coord(image, point, label)
+    # # sam_trt.show_result(masks, ori_image, point, label, out_path='frame1_single.png')
 
-def test_grids():
-    args = parse_args()
-    
+def test_grids(args):
     print("use sam tensort-rt")
+<<<<<<< Updated upstream
     sam_trt = SAMTRT(args.device, use_trt=True)
+=======
+    sam_trt = SAMTRT(device=args.device, use_trt=True)
+>>>>>>> Stashed changes
     sam_trt.load_sam()
-    ori_image = cv2.imread('notebooks/images/frame1.jpg')
+    ori_image = cv2.imread('notebooks/images/frame4.jpg')
     ori_image = cv2.cvtColor(ori_image, cv2.COLOR_BGR2RGB)
     image = sam_trt.prepare_image(ori_image)
     for i in range(10):
         res = sam_trt.infer_grid_coord(image)
+<<<<<<< Updated upstream
     sam_trt.show_result(image=ori_image, anns=res, out_path='frame1_masks.png')
 
     # print("use sam base")
     # sam_trt = SAMTRT(args.device, use_trt=False)
+=======
+    sam_trt.show_result(image=ori_image, anns=res, out_path='frame4_masks.png')
+
+    # print("use sam base")
+    # sam_trt = SAMTRT(device=args.device, use_trt=False)
+>>>>>>> Stashed changes
     # sam_trt.load_sam()
-    # ori_image = cv2.imread('notebooks/images/truck.jpg')
-    # print(ori_image.shape)
+    # ori_image = cv2.imread('notebooks/images/frame1.jpg')
     # image = sam_trt.prepare_image(ori_image)
     # res=sam_trt.infer_grid_coord(image)
+<<<<<<< Updated upstream
     # sam_trt.show_result(image=ori_image, anns=res)
     
 def _get_pcd_pair(imgf_dir, lidarf_dir):
@@ -219,4 +248,14 @@ def test_lidar():
 
 if __name__ == '__main__':
     test_lidar()
+=======
+    # # sam_trt.show_result(image=ori_image, anns=res, out_path='frame1_masks.png')
+
+if __name__ == '__main__':
+    args = parse_args()
+    if args.trt_mode == 'single':
+        test_single(args)
+    elif args.trt_mode == 'grids':
+        test_grids(args)
+>>>>>>> Stashed changes
 

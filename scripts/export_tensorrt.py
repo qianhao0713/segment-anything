@@ -30,7 +30,9 @@ def export_engine_image_encoder(f='vit_l_embedding.onnx', dynamic_input={}, dyna
     logger = trt.Logger(trt.Logger.INFO)
     builder = trt.Builder(logger)
     profile = builder.create_optimization_profile()
+    calib_profile = builder.create_optimization_profile()
     config = builder.create_builder_config()
+    # config.profiling_verbosity = trt.ProfilingVerbosity.VERBOSE
     workspace = 16
     config.max_workspace_size = workspace * 1 << 30
     flag = (1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
@@ -44,10 +46,13 @@ def export_engine_image_encoder(f='vit_l_embedding.onnx', dynamic_input={}, dyna
     for inp in inputs:
         if inp.name in dynamic_input:
             profile.set_shape(inp.name, *dynamic_input[inp.name])
+            calib_profile.set_shape(inp.name, dynamic_input[inp.name][1], dynamic_input[inp.name][1], dynamic_input[inp.name][1])
         if inp.name in dynamic_input_value:
             profile.set_shape_input(inp.name, *dynamic_input_value[inp.name])
+            calib_profile.set_shape_input(inp.name, dynamic_input_value[inp.name][1], dynamic_input_value[inp.name][1], dynamic_input_value[inp.name][1])
         print(f'input "{inp.name}" with shape{inp.shape} {inp.dtype}')
     config.add_optimization_profile(profile)
+    config.set_calibration_profile(calib_profile)
     for out in outputs:
         print(f'output "{out.name}" with shape{out.shape} {out.dtype}')
     tensor_range_file = "%s/../calibration.cache" % os.path.abspath(os.path.dirname(__file__))
@@ -70,7 +75,7 @@ with torch.no_grad():
         "point_labels":[(1,1), (64,1), (128,2)]
     }
     dynamic_input_value = {
-        "orig_im_size":[(1,1),(1200,1800),(1200,2000)]
+        "orig_im_size":[(1,1),(1080,1920),(1200,2000)]
     }
     export_engine_image_encoder('./weights/sam_vit_l_single_mask_decoder_fold.onnx',dynamic_input,dynamic_input_value)
     # export_engine_image_encoder('./weights/sam_vit_l_single_mask_decoder_int8.onnx')

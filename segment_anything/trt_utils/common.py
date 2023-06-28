@@ -107,7 +107,7 @@ def allocate_buffers_torch(engine, context, dynamic_shape={}, dynamic_shape_valu
         trt.float16: torch.float16,
         trt.int8: torch.int8,
         trt.int32: torch.int32,
-        trt.uint8: torch.uint8,
+        # trt.uint8: torch.uint8,
         # Note: fp8 has no equivalent numpy type
     }
     for i, binding in enumerate(engine):
