@@ -134,20 +134,20 @@ def run_export(
         "point_labels": torch.randint(low=0, high=4, size=(1, 2), dtype=torch.float),
         "mask_input": torch.randn(1, 1, *mask_input_size, dtype=torch.float),
         "has_mask_input": torch.tensor([1], dtype=torch.float),
-        "orig_im_size": torch.tensor([1200, 1800], dtype=torch.int32),
+        "orig_im_size": torch.tensor([1080, 1920], dtype=torch.int32),
     }
     dummy_inputs = {
         "image": torch.randn(1, 3, 1024, 1024, dtype=torch.float)
     }
     _ = onnx_model(**dummy_inputs2)
 
-    output_names = ["masks", "iou_predictions", "low_res_masks"]
+    output_names = ["masks", "iou_predictions", "iou_token_out"]
 
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=torch.jit.TracerWarning)
         warnings.filterwarnings("ignore", category=UserWarning)
         mask_decoder_output = output+'_mask_decoder.onnx'
-        image_encoder_output = output+'_image_encoder.onnx'
+        image_encoder_output = output+'_vit_encoder.onnx'
         with open(mask_decoder_output, "wb") as f:
             print(f"Exporting onnx model to {mask_decoder_output}...")
             torch.onnx.export(
@@ -179,7 +179,7 @@ def run_export(
     if onnxruntime_exists:
         ort_inputs = {k: to_numpy(v) for k, v in dummy_inputs2.items()}
         # set cpu provider default
-        providers = ["TensorrtExecutionProvider", "CUDAExecutionProvider", "CPUExecutionProvider"]
+        providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
         ort_session = onnxruntime.InferenceSession(mask_decoder_output, providers=providers)
         _ = ort_session.run(None, ort_inputs)
         print("Model has successfully been run with ONNXRuntime.")

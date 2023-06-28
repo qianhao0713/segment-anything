@@ -5,16 +5,7 @@ from segment_anything.sam_trt import SAMTRT
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--single_coord_input', action='store_true')
-    parser.add_argument('--exclude_postprocess', action='store_true')
-    # parser.add_argument('--device', type=str, default='0')
     parser.add_argument('--device', type=str, default='cuda:0')
-    parser.add_argument('--encoder_trt', type=str, default='weights/sam_image_encoder.trt', help='sam image encoder trt path')
-    parser.add_argument('--decoder_trt', type=str, default='weights/sam_single_mask_mask_decoder_fold.trt', help='sam mask decoder trt path')
-    # parser.add_argument('--decoder_trt', type=str, default='weights/sam_mask_decoder_fold.trt', help='sam mask decoder trt path')
-    parser.add_argument('--points_per_side', type=int, default=32, help='point input num in one-side of a picture for mask-generation, total num is n_points * n_points')
-    parser.add_argument('--points_per_batch', type=int, default=64, help='point input in one batch for mask-generation')
-    parser.add_argument('--box_nms_thresh', type=float, default=0.77)
     args = parser.parse_args()
     return args
 

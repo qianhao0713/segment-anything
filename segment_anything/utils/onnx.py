@@ -117,7 +117,7 @@ class SamOnnxModel(nn.Module):
         sparse_embedding = self._embed_points(point_coords, point_labels)
         dense_embedding = self._embed_masks(mask_input, has_mask_input)
 
-        masks, scores = self.model.mask_decoder.predict_masks(
+        masks, scores, iou_token_out = self.model.mask_decoder.predict_masks(
             image_embeddings=image_embeddings,
             image_pe=self.model.prompt_encoder.get_dense_pe(),
             sparse_prompt_embeddings=sparse_embedding,
@@ -128,9 +128,14 @@ class SamOnnxModel(nn.Module):
             scores = calculate_stability_score(
                 masks, self.model.mask_threshold, self.stability_score_offset
             )
-
+        iou_token_out.unsqueeze_(1)
         if self.return_single_mask:
             masks, scores = self.select_masks(masks, scores, point_coords.shape[1])
+        else:
+            mask_slice = slice(1, None)
+            iou_token_out = iou_token_out.expand(-1, 3, -1)
+            masks = masks[:, mask_slice, :, :]
+            scores = scores[:, mask_slice]
 
         upscaled_masks = self.mask_postprocessing(masks, orig_im_size)
 
@@ -141,4 +146,4 @@ class SamOnnxModel(nn.Module):
             areas = (upscaled_masks > self.model.mask_threshold).sum(-1).sum(-1)
             return upscaled_masks, scores, stability_scores, areas, masks
 
-        return upscaled_masks, scores, masks
+        return upscaled_masks, scores, iou_token_out

@@ -148,14 +148,14 @@ class SAMTRT(object):
         
     def infer_mask(self, ort_inputs2):
         if self.use_trt:
-            _, iou_preds, masks = self.mask_decoder_engine.torch_inference(ort_inputs2)
+            iou_token_out, iou_preds, masks = self.mask_decoder_engine.torch_inference(ort_inputs2)
         else:
             sparse_embeddings, dense_embeddings = self.sam.prompt_encoder(
                 points=(ort_inputs2["point_coords"], ort_inputs2["point_labels"]),
                 boxes=None,
                 masks=None
             )
-            low_res_masks, iou_preds = self.sam.mask_decoder(
+            low_res_masks, iou_preds, iou_token_out = self.sam.mask_decoder(
                 image_embeddings=ort_inputs2["image_embeddings"],
                 image_pe=self.sam.prompt_encoder.get_dense_pe(),
                 sparse_prompt_embeddings=sparse_embeddings,
@@ -170,10 +170,8 @@ class SAMTRT(object):
             best_idx = torch.argmax(iou_preds, dim=1)
             masks = masks[torch.arange(masks.shape[0]), best_idx, :, :].unsqueeze(1)
             iou_preds = iou_preds[torch.arange(masks.shape[0]), best_idx].unsqueeze(1)
-            masks = masks.detach()
-            
         torch.cuda.synchronize()
-        return iou_preds.detach(), masks.detach()
+        return iou_preds.detach(), masks.detach(), iou_token_out.detach()
         
     def infer_grid_coord(self, image):
         point_grids = build_point_grid(self.point_per_side, partial_y=self.partial_width, partial_x=self.partial_height)
@@ -205,10 +203,11 @@ class SAMTRT(object):
             t1 = time.time()
             coord_input = self.transf.apply_coords(coord_input, image.shape[-2:])
             ort_inputs2["point_coords"] = coord_input
-            iou_preds, masks = self.infer_mask(ort_inputs2)
+            iou_preds, masks, iou_token_out = self.infer_mask(ort_inputs2)
             batch_data = MaskData(
                 masks=masks.flatten(0, 1),
                 iou_preds=iou_preds.flatten(0, 1),
+                iou_token_out=iou_token_out.flatten(0, 1),
                 points=torch.as_tensor(coord_input.repeat([masks.shape[1],1,1])),
             )
             t2=time.time()
@@ -235,6 +234,7 @@ class SAMTRT(object):
                 "predicted_iou": mask_data["iou_preds"][idx].item(),
                 "point_coords": [mask_data["points"][idx].tolist()],
                 "stability_score": mask_data["stability_score"][idx].item(),
+                "iou_token_out": mask_data["iou_token_out"][idx],
             }
             res.append(ann)
         post_process_time2 = time.time()-t4

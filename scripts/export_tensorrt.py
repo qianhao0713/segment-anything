@@ -1,5 +1,7 @@
 import torch
 import tensorrt as trt
+import argparse
+
 def set_quantize_dynamic_range(tensor_range_file, network):
     tr_map = {}
     with open(tensor_range_file) as f:
@@ -19,19 +21,18 @@ def set_quantize_dynamic_range(tensor_range_file, network):
                 max_value = tr_map[l_output.name]
                 l_output.set_dynamic_range(-max_value, max_value)        
 
-def export_engine_image_encoder(f='vit_l_embedding.onnx', dynamic_input={}, dynamic_input_value={}):
-
+def export_engine_image_encoder(onnx_in='vit_l_embedding.onnx', trt_out='vit_l_embedding.trt', dynamic_input={}, dynamic_input_value={}):
     from pathlib import Path
     from segment_anything.calib.calib_dataloader import SAMCalibrator
     import os
-    file = Path(f)
-    f = file.with_name('sam_vit_l_single_mask_decoder.trt')  # TensorRT engine file
+    file = Path(onnx_in)
+    # f = file.with_name(trt_out)  # TensorRT engine file
     onnx = file.with_suffix('.onnx')
     logger = trt.Logger(trt.Logger.INFO)
     builder = trt.Builder(logger)
     profile = builder.create_optimization_profile()
     config = builder.create_builder_config()
-    workspace = 16
+    workspace = 20
     config.max_workspace_size = workspace * 1 << 30
     flag = (1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
     network = builder.create_network(flag)
@@ -54,7 +55,7 @@ def export_engine_image_encoder(f='vit_l_embedding.onnx', dynamic_input={}, dyna
 
     half = True
     use_int8 = False
-    print(f'building FP{16 if builder.platform_has_fast_fp16 and half else 32} engine as {f}')
+    print(f'building FP{16 if builder.platform_has_fast_fp16 and half else 32} engine')
     if builder.platform_has_fast_fp16 and half:
         config.set_flag(trt.BuilderFlag.FP16)
     if builder.platform_has_fast_int8 and use_int8:
@@ -62,15 +63,26 @@ def export_engine_image_encoder(f='vit_l_embedding.onnx', dynamic_input={}, dyna
         int8_calibrator = SAMCalibrator(device="cuda:0")
         config.int8_calibrator = int8_calibrator
         set_quantize_dynamic_range(tensor_range_file, network)
-    with builder.build_engine(network, config) as engine, open(f, 'wb') as t:
+    with builder.build_engine(network, config) as engine, open(trt_out, 'wb') as t:
         t.write(engine.serialize())
-with torch.no_grad():
-    dynamic_input = {
-        "point_coords":[(1,1,2), (64,1,2), (128,2,2)],
-        "point_labels":[(1,1), (64,1), (128,2)]
-    }
-    dynamic_input_value = {
-        "orig_im_size":[(1,1),(1200,1800),(1200,2000)]
-    }
-    export_engine_image_encoder('./weights/sam_vit_l_single_mask_decoder_fold.onnx',dynamic_input,dynamic_input_value)
-    # export_engine_image_encoder('./weights/sam_vit_l_single_mask_decoder_int8.onnx')
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+        description="Export the onnx model to an tensor-rt model."
+    )
+    parser.add_argument(
+        "--onnx", type=str, required=True, help="The path to the input onnx"
+    )
+    parser.add_argument(
+        "--trt", type=str, required=True, help="The filename to save the tensorrt-model to."
+    )
+    args = parser.parse_args()
+    with torch.no_grad():
+        dynamic_input = {
+            "point_coords":[(1,1,2), (64,1,2), (128,2,2)],
+            "point_labels":[(1,1), (64,1), (128,2)]
+        }
+        dynamic_input_value = {
+            "orig_im_size":[(1,1),(1080,1920),(1200,2000)]
+        }
+        export_engine_image_encoder(onnx_in=args.onnx, trt_out=args.trt, dynamic_input=dynamic_input, dynamic_input_value=dynamic_input_value)
