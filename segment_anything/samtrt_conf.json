@@ -1,12 +1,7 @@
 {
     "generate_masks": true,
-<<<<<<< Updated upstream
-    "encoder_trt": "weights/sam_image_encoder_fold.trt",
-    "decoder_trt": "weights/sam_vit_l_single_mask_decoder.trt",
-=======
     "encoder_trt": "weights/sam_image_encoder.trt",
     "decoder_trt": "weights/sam_single_mask_mask_decoder_int8.trt",
->>>>>>> Stashed changes
     "points_per_side": 32,
     "points_per_batch": 64,
     "box_nms_thresh": 0.77,
