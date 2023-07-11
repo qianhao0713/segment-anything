@@ -3,10 +3,10 @@
 
 #define LINE 128
 #define CIRCLEMAXLEN 2000
-#include <pcl/PCLHeader.h>
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
+#include <iostream>
 
 
 class pt{
@@ -45,6 +45,8 @@ public:
     double obj_long=0;
     double obj_wide=0;
     double obj_high=0;
+
+    int ori_id; //原始numpy输入的index
 };
 
 //单个栅格对象
@@ -275,28 +277,5 @@ class GPS
   double roll;
   double yaw;
 };
-
-//跟踪框
-class mybox
-{
-  public:
-  float x;
-  float y;
-  float z;
-  float dx;
-  float dy;
-  float dz;
-  int pointnum;
-  std::string class_label;   //--yj--//
-  int closenum;//  just for tracker
-  double closedis; //  just for tracker
-  pcl::uint64_t timestamp;
-  GPS gps;
-  cv::Point2f Fpoint_A;
-  cv::Point2f Fpoint_B;
-  cv::Point2f Fpoint_C;
-  cv::Point2f Fpoint_D;
-};
-
 
 #endif

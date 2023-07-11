@@ -17,7 +17,7 @@ def set_quantize_dynamic_range(tensor_range_file, network):
             l_output = layer.get_output(j)
             if l_output.name in tr_map:
                 max_value = tr_map[l_output.name]
-                l_output.set_dynamic_range(-max_value, max_value)        
+                l_output.set_dynamic_range(-max_value, max_value)
 
 def export_engine_image_encoder(f='vit_l_embedding.onnx', dynamic_input={}, dynamic_input_value={}):
 
@@ -25,7 +25,7 @@ def export_engine_image_encoder(f='vit_l_embedding.onnx', dynamic_input={}, dyna
     from segment_anything.calib.calib_dataloader import SAMCalibrator
     import os
     file = Path(f)
-    f = file.with_name('sam_vit_l_single_mask_decoder.trt')  # TensorRT engine file
+    f = file.with_name('sam_vit_l_mask_decoder.onnx.trt')  # TensorRT engine file
     onnx = file.with_suffix('.onnx')
     logger = trt.Logger(trt.Logger.INFO)
     builder = trt.Builder(logger)
@@ -71,11 +71,11 @@ def export_engine_image_encoder(f='vit_l_embedding.onnx', dynamic_input={}, dyna
         t.write(engine.serialize())
 with torch.no_grad():
     dynamic_input = {
-        "point_coords":[(1,1,2), (64,1,2), (128,2,2)],
-        "point_labels":[(1,1), (64,1), (128,2)]
+        "point_coords":[(1,1,2), (64,100,2), (64,100,2)],
+        "point_labels":[(1,1), (64,100), (64,100)]
     }
     dynamic_input_value = {
         "orig_im_size":[(1,1),(1080,1920),(1200,2000)]
     }
-    export_engine_image_encoder('./weights/sam_vit_l_single_mask_decoder_fold.onnx',dynamic_input,dynamic_input_value)
+    export_engine_image_encoder('./weights/sam_vit_l_mask_decoder.onnx',dynamic_input,dynamic_input_value)
     # export_engine_image_encoder('./weights/sam_vit_l_single_mask_decoder_int8.onnx')

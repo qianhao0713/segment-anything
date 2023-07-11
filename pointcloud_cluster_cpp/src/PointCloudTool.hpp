@@ -1,7 +1,7 @@
 #pragma once
 #include <vector>
 #include "tool.hpp"
-#include <rclcpp/rclcpp.hpp>
+// #include <rclcpp/rclcpp.hpp>
 #include <opencv2/opencv.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/core/core.hpp>
@@ -9,11 +9,11 @@
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/highgui/highgui_c.h>
-#include <image_transport/image_transport.h>
-#include <sensor_msgs/msg/point_cloud.h>
-#include <sensor_msgs/msg/point_cloud2.h>
-#include <sensor_msgs/point_cloud_conversion.hpp>
-#include <visualization_msgs/msg/marker.hpp>
+// #include <image_transport/image_transport.h>
+// #include <sensor_msgs/msg/point_cloud.h>
+// #include <sensor_msgs/msg/point_cloud2.h>
+// #include <sensor_msgs/point_cloud_conversion.hpp>
+// #include <visualization_msgs/msg/marker.hpp>
 #include <eigen3/Eigen/Core>
 #include <eigen3/Eigen/Geometry>
 
@@ -112,8 +112,7 @@ void NewGroundSeg(pointCloud *mcloud)
   //  }
   //}
   memset(init, 0, sizeof init);
-
- 
+#pragma omp parallel for
 for (size_t c = 0; c < Col; c++)
 {
     for (size_t l = 0; l < Row; l++)
@@ -152,6 +151,7 @@ for (size_t c = 0; c < Col; c++)
 }
  //ROS_INFO("2");
  //==========================高度差===========================
+ #pragma omp parallel for
     for (int x = 5; x < grid_dim_x-5; x++) 
     for (int y = 5; y < grid_dim_y-5; y++) 
      {
@@ -163,12 +163,11 @@ for (size_t c = 0; c < Col; c++)
          if((max[y][x]-zmin)>0.15 && init[y][x])
             obstacle_map.ptr<uchar>(grid_dim_y-y)[x]=250;
      }  
-
    FilterBasedOnObstacleMap(mcloud);
-
-   /*for (size_t c = 0; c < mcloud->circlelen; c++)
+    #pragma omp parallel for
+   for (size_t c = 0; c < mcloud->circlelen; c++)
      {
-        for (size_t l = 0; l < LINE; l++)
+        for (size_t l = 0; l < Row; l++)
         {
           if(mcloud->mptclout[l][c].type==1 || !mcloud->mptclout[l][c].isused)
           continue;
@@ -183,8 +182,8 @@ for (size_t c = 0; c < Col; c++)
           else
           mcloud->mptclout[l][c].type=10;  //地面点
         }
-    } 
-   
+    }
+   /*
    cv::Mat show_all=obstacle_map.clone();
    for(int xt=0;xt<500;xt++)
       for(int yt=0;yt<750;yt++)
@@ -192,9 +191,10 @@ for (size_t c = 0; c < Col; c++)
         if(show_all.ptr<uchar>(yt)[xt]==0 && MaskForCluster.ptr<uchar>(yt)[xt]>0)
         show_all.ptr<uchar>(yt)[xt]=150;
       }
-   
-   cv::imshow("showall",show_all);
-   cv::waitKey(1);*/
+   */
+  //  cv::imshow("showall",obstacle_map);
+  //  cv::imwrite("test.png", obstacle_map);
+  //  cv::waitKey(1);
 }
 
 //==========================障碍物图初步聚类过滤==============================
@@ -253,7 +253,6 @@ std::vector< std::vector< std::vector<pointX> > >  PointCloudCluster(pointCloud 
     std::vector< std::vector<pointX> >  allclusterrow;
     std::vector<pointX>  tempcluster;
     double x,y,z,xx,yy,zz;
-    cout<<"31"<<endl;
     for(size_t l = 0; l < Row; l++)
       {
         allclusterrow.clear(); 
@@ -265,7 +264,6 @@ std::vector< std::vector< std::vector<pointX> > >  PointCloudCluster(pointCloud 
           continue;
       if(mcloud->mptclout[l][c].type!=20)
           continue;
-
       x= mcloud->mptclout[l][c].x;
       y= mcloud->mptclout[l][c].y;
       z= mcloud->mptclout[l][c].z;
@@ -276,7 +274,7 @@ std::vector< std::vector< std::vector<pointX> > >  PointCloudCluster(pointCloud 
           //sumx=sumx+x;sumy=sumy+y;
       }
       else
-        { 
+      { 
           xx=tempcluster[tempcluster.size()-1].x; 
           yy=tempcluster[tempcluster.size()-1].y;
           zz=tempcluster[tempcluster.size()-1].z;
@@ -285,7 +283,8 @@ std::vector< std::vector< std::vector<pointX> > >  PointCloudCluster(pointCloud 
             tempcluster.push_back(temppoint);
             //sumx=sumx+x; sumy=sumy+y;
           }
-          else{
+          else
+          {
                 //tempcluster.push_back(Point(j,0));tempcluster.push_back(Point(int(sumx/(temproad.size()-1)),int(sumy/(temproad.size()-1))));
                 
                 int xn=tempcluster[0].x*5+250;int yn=500-tempcluster[0].y*5;
@@ -294,19 +293,20 @@ std::vector< std::vector< std::vector<pointX> > >  PointCloudCluster(pointCloud 
                 allclusterrow.push_back(tempcluster);
                 tempcluster.clear();  //sumx=0;  sumy=0;
                 tempcluster.push_back(temppoint);
-              }
-           }
+          }
       }
-      
+      }
+      if (tempcluster.size() > 0) {
+        int xn=tempcluster[0].x*5+250;int yn=500-tempcluster[0].y*5;
+        int xm=tempcluster[tempcluster.size()-1].x*5+250;int ym=500-tempcluster[tempcluster.size()-1].y*5;
+        if ((tempcluster.size()>3)||(tempcluster.size()>0 && (MaskForCluster.ptr<uchar>(ym)[xm]>0 || MaskForCluster.ptr<uchar>(yn)[xn]>0 ) ))
+        {
+          //tempcluster.push_back(Point(j,0));temproad.push_back(Point(int(sumx/(temproad.size()-1)),int(sumy/(temproad.size()-1))));
+          allclusterrow.push_back(tempcluster);//temproad.clear();sumx=0;sumy=0;
+        }
+        allcluster.push_back(allclusterrow);
+      }
 
-      int xn=tempcluster[0].x*5+250;int yn=500-tempcluster[0].y*5;
-      int xm=tempcluster[tempcluster.size()-1].x*5+250;int ym=500-tempcluster[tempcluster.size()-1].y*5;
-      if ((tempcluster.size()>3)||(tempcluster.size()>0 && (MaskForCluster.ptr<uchar>(ym)[xm]>0 || MaskForCluster.ptr<uchar>(yn)[xn]>0 ) ))
-      {
-        //tempcluster.push_back(Point(j,0));temproad.push_back(Point(int(sumx/(temproad.size()-1)),int(sumy/(temproad.size()-1))));
-        allclusterrow.push_back(tempcluster);//temproad.clear();sumx=0;sumy=0;
-      }
-      allcluster.push_back(allclusterrow);
 }
 return allcluster;
 };
@@ -497,7 +497,7 @@ int FindCloseCluster(vector<pointX> p,int n1,int n2)
 {
   LineFuture temp=AllFuture[n1][n2];
   int num=-1;
-  double dmin=1.5;
+  double dmin=2.0;
   for(int n=0;n<Clusters.size();n++)
   {
     //double d1=point2point(temp.b,Clusters[n].pc);
@@ -773,110 +773,110 @@ void MergeClusterResult(int n1,int n2,vector< vector< vector<pointX> > > *allclu
   Clusters.swap(temp); */ //释放内存
 }
 //====================================================================
-void ShowResultWithBox(visualization_msgs::msg::Marker &points,visualization_msgs::msg::Marker &line_list)
-{
-  points.header.frame_id = line_list.header.frame_id = "PERCEPTION2023";
-  points.header.stamp =line_list.header.stamp = rclcpp::Clock(RCL_ROS_TIME).now();
-  points.ns = "points";
-  line_list.ns = "points_and_lines";
-  points.action =line_list.action = visualization_msgs::msg::Marker::ADD;
-  points.pose.orientation.w = line_list.pose.orientation.w = 1.0;
-  points.id = 0;
-  line_list.id = 2;
-  points.type = visualization_msgs::msg::Marker::POINTS;
-  line_list.type = visualization_msgs::msg::Marker::LINE_LIST;
-  points.scale.x = 0.5;points.scale.y = 0.5;points.scale.z = 0.5;
-  line_list.scale.x = 0.1;// Points are green
-  points.color.g = 1.0f; points.color.a = 1.0;// Line list is red
-  line_list.color.r = 1.0;line_list.color.g = 1.0;line_list.color.b = 1.0;line_list.color.a = 1.0;
-  geometry_msgs::msg::Point p1,p2,p3,p4,p5,p6,p7,p8, p0;
-  float max_z,min_z;Point2f pot1,pot2,pot3,pot4;
+// void ShowResultWithBox(visualization_msgs::msg::Marker &points,visualization_msgs::msg::Marker &line_list)
+// {
+//   points.header.frame_id = line_list.header.frame_id = "PERCEPTION2023";
+//   points.header.stamp =line_list.header.stamp = rclcpp::Clock(RCL_ROS_TIME).now();
+//   points.ns = "points";
+//   line_list.ns = "points_and_lines";
+//   points.action =line_list.action = visualization_msgs::msg::Marker::ADD;
+//   points.pose.orientation.w = line_list.pose.orientation.w = 1.0;
+//   points.id = 0;
+//   line_list.id = 2;
+//   points.type = visualization_msgs::msg::Marker::POINTS;
+//   line_list.type = visualization_msgs::msg::Marker::LINE_LIST;
+//   points.scale.x = 0.5;points.scale.y = 0.5;points.scale.z = 0.5;
+//   line_list.scale.x = 0.1;// Points are green
+//   points.color.g = 1.0f; points.color.a = 1.0;// Line list is red
+//   line_list.color.r = 1.0;line_list.color.g = 1.0;line_list.color.b = 1.0;line_list.color.a = 1.0;
+//   geometry_msgs::msg::Point p1,p2,p3,p4,p5,p6,p7,p8, p0;
+//   float max_z,min_z;Point2f pot1,pot2,pot3,pot4;
    
-   for(int n=0;n<Clusters.size();n++)
-   {
-        pot1=Point2f(Clusters[n].p1.x,Clusters[n].p1.y);
-        pot2=Point2f(Clusters[n].p2.x,Clusters[n].p2.y);
-        pot3=Point2f(Clusters[n].p3.x,Clusters[n].p3.y);
-        pot4=Point2f(Clusters[n].p4.x,Clusters[n].p4.y);
-        max_z=Clusters[n].zmax;
-        min_z=Clusters[n].zmin;
+//    for(int n=0;n<Clusters.size();n++)
+//    {
+//         pot1=Point2f(Clusters[n].p1.x,Clusters[n].p1.y);
+//         pot2=Point2f(Clusters[n].p2.x,Clusters[n].p2.y);
+//         pot3=Point2f(Clusters[n].p3.x,Clusters[n].p3.y);
+//         pot4=Point2f(Clusters[n].p4.x,Clusters[n].p4.y);
+//         max_z=Clusters[n].zmax;
+//         min_z=Clusters[n].zmin;
         
-        p0.x=0.25*(pot1.x+pot2.x+pot3.x+pot4.x);
-        p0.y=0.25*(pot1.y+pot2.y+pot3.y+pot4.y); 
-        p0.z=0.5*(max_z+min_z);
+//         p0.x=0.25*(pot1.x+pot2.x+pot3.x+pot4.x);
+//         p0.y=0.25*(pot1.y+pot2.y+pot3.y+pot4.y); 
+//         p0.z=0.5*(max_z+min_z);
 
-        p1.x = pot1.x;p1.y = pot1.y;p1.z = min_z;
-        p2.x=pot2.x;p2.y=pot2.y;p2.z=min_z;
-        p3.x=pot3.x;p3.y=pot3.y;p3.z=min_z;
-        p4.x=pot4.x; p4.y=pot4.y;p4.z=min_z;
-        p5.x = pot1.x;p5.y = pot1.y;p5.z = max_z;
-        p6.x=pot2.x;p6.y=pot2.y;p6.z=max_z;
-        p7.x=pot3.x;p7.y=pot3.y;p7.z=max_z;
-        p8.x=pot4.x;p8.y=pot4.y;p8.z=max_z;
+//         p1.x = pot1.x;p1.y = pot1.y;p1.z = min_z;
+//         p2.x=pot2.x;p2.y=pot2.y;p2.z=min_z;
+//         p3.x=pot3.x;p3.y=pot3.y;p3.z=min_z;
+//         p4.x=pot4.x; p4.y=pot4.y;p4.z=min_z;
+//         p5.x = pot1.x;p5.y = pot1.y;p5.z = max_z;
+//         p6.x=pot2.x;p6.y=pot2.y;p6.z=max_z;
+//         p7.x=pot3.x;p7.y=pot3.y;p7.z=max_z;
+//         p8.x=pot4.x;p8.y=pot4.y;p8.z=max_z;
 
-        points.points.push_back(p0);
-        line_list.points.push_back(p1);line_list.points.push_back(p2);
-        line_list.points.push_back(p2); line_list.points.push_back(p3);
-        line_list.points.push_back(p3);line_list.points.push_back(p4);
-        line_list.points.push_back(p4);line_list.points.push_back(p1);
-        line_list.points.push_back(p5); line_list.points.push_back(p6);
-        line_list.points.push_back(p6); line_list.points.push_back(p7);
-        line_list.points.push_back(p7); line_list.points.push_back(p8);
-        line_list.points.push_back(p8);line_list.points.push_back(p5);
-        line_list.points.push_back(p1); line_list.points.push_back(p5);
-        line_list.points.push_back(p2);line_list.points.push_back(p6);
-        line_list.points.push_back(p3); line_list.points.push_back(p7);
-        line_list.points.push_back(p4); line_list.points.push_back(p8);
-   }
+//         points.points.push_back(p0);
+//         line_list.points.push_back(p1);line_list.points.push_back(p2);
+//         line_list.points.push_back(p2); line_list.points.push_back(p3);
+//         line_list.points.push_back(p3);line_list.points.push_back(p4);
+//         line_list.points.push_back(p4);line_list.points.push_back(p1);
+//         line_list.points.push_back(p5); line_list.points.push_back(p6);
+//         line_list.points.push_back(p6); line_list.points.push_back(p7);
+//         line_list.points.push_back(p7); line_list.points.push_back(p8);
+//         line_list.points.push_back(p8);line_list.points.push_back(p5);
+//         line_list.points.push_back(p1); line_list.points.push_back(p5);
+//         line_list.points.push_back(p2);line_list.points.push_back(p6);
+//         line_list.points.push_back(p3); line_list.points.push_back(p7);
+//         line_list.points.push_back(p4); line_list.points.push_back(p8);
+//    }
 
-}
+// }
 
 //====================================================================
-void ShowResultWithHull(visualization_msgs::msg::Marker &points,visualization_msgs::msg::Marker &line_list)
-{
-  points.header.frame_id = line_list.header.frame_id = "PERCEPTION2023";
-  points.header.stamp =line_list.header.stamp =  rclcpp::Clock(RCL_ROS_TIME).now();
-  points.ns = "points";
-  line_list.ns = "points_and_lines";
-  points.action =line_list.action = visualization_msgs::msg::Marker::ADD;
-  points.pose.orientation.w = line_list.pose.orientation.w = 1.0;
-  points.id = 0;
-  line_list.id = 2;
-  points.type = visualization_msgs::msg::Marker::POINTS;
-  line_list.type = visualization_msgs::msg::Marker::LINE_LIST;
-  points.scale.x = 0.5;points.scale.y = 0.5;points.scale.z = 0.5;
-  line_list.scale.x = 0.1;// Points are green
-  points.color.g = 1.0f; points.color.a = 1.0;// Line list is red
-  line_list.color.r = 1.0;line_list.color.g = 1.0;line_list.color.b = 1.0;line_list.color.a = 1.0;
-  geometry_msgs::msg::Point p1,p2,p3,p4,p5,p6,p7,p8, p0;
-  float max_z,min_z;Point2f pot1,pot2,pot3,pot4;
+// void ShowResultWithHull(visualization_msgs::msg::Marker &points,visualization_msgs::msg::Marker &line_list)
+// {
+//   points.header.frame_id = line_list.header.frame_id = "PERCEPTION2023";
+//   points.header.stamp =line_list.header.stamp =  rclcpp::Clock(RCL_ROS_TIME).now();
+//   points.ns = "points";
+//   line_list.ns = "points_and_lines";
+//   points.action =line_list.action = visualization_msgs::msg::Marker::ADD;
+//   points.pose.orientation.w = line_list.pose.orientation.w = 1.0;
+//   points.id = 0;
+//   line_list.id = 2;
+//   points.type = visualization_msgs::msg::Marker::POINTS;
+//   line_list.type = visualization_msgs::msg::Marker::LINE_LIST;
+//   points.scale.x = 0.5;points.scale.y = 0.5;points.scale.z = 0.5;
+//   line_list.scale.x = 0.1;// Points are green
+//   points.color.g = 1.0f; points.color.a = 1.0;// Line list is red
+//   line_list.color.r = 1.0;line_list.color.g = 1.0;line_list.color.b = 1.0;line_list.color.a = 1.0;
+//   geometry_msgs::msg::Point p1,p2,p3,p4,p5,p6,p7,p8, p0;
+//   float max_z,min_z;Point2f pot1,pot2,pot3,pot4;
    
-  for(int n=0;n<Clusters.size();n++)
-  {
-      max_z=Clusters[n].zmax;
-      min_z=Clusters[n].zmin;
-      p0.x=Clusters[n].pc.x; p0.y=Clusters[n].pc.y; p0.z=0.5*(max_z+min_z);
-      points.points.push_back(p0);
+//   for(int n=0;n<Clusters.size();n++)
+//   {
+//       max_z=Clusters[n].zmax;
+//       min_z=Clusters[n].zmin;
+//       p0.x=Clusters[n].pc.x; p0.y=Clusters[n].pc.y; p0.z=0.5*(max_z+min_z);
+//       points.points.push_back(p0);
       
-      for(int m=0;m<Clusters[n].hull.size()-1;m++)
-      {
-        p1.x = Clusters[n].hull[m].x;p1.y = Clusters[n].hull[m].y;  p1.z = min_z;
-        p2.x=Clusters[n].hull[m+1].x; p2.y=Clusters[n].hull[m+1].y;  p2.z=min_z;
-        p3.x=p1.x;p3.y=p1.y;p3.z=max_z;
-        p4.x=p2.x;p4.y=p2.y;p4.z=max_z;
-        line_list.points.push_back(p1);line_list.points.push_back(p2);
-        line_list.points.push_back(p3); line_list.points.push_back(p4);
-        line_list.points.push_back(p1);line_list.points.push_back(p3);
-      }
+//       for(int m=0;m<Clusters[n].hull.size()-1;m++)
+//       {
+//         p1.x = Clusters[n].hull[m].x;p1.y = Clusters[n].hull[m].y;  p1.z = min_z;
+//         p2.x=Clusters[n].hull[m+1].x; p2.y=Clusters[n].hull[m+1].y;  p2.z=min_z;
+//         p3.x=p1.x;p3.y=p1.y;p3.z=max_z;
+//         p4.x=p2.x;p4.y=p2.y;p4.z=max_z;
+//         line_list.points.push_back(p1);line_list.points.push_back(p2);
+//         line_list.points.push_back(p3); line_list.points.push_back(p4);
+//         line_list.points.push_back(p1);line_list.points.push_back(p3);
+//       }
 
-        p1.x = Clusters[n].hull[Clusters[n].hull.size()-1].x;p1.y = Clusters[n].hull[Clusters[n].hull.size()-1].y;  p1.z = min_z;
-        p2.x=Clusters[n].hull[0].x; p2.y=Clusters[n].hull[0].y;  p2.z=min_z;
-        p3.x=p1.x;p3.y=p1.y;p3.z=max_z;
-        p4.x=p2.x;p4.y=p2.y;p4.z=max_z;
-        line_list.points.push_back(p1);line_list.points.push_back(p2);
-        line_list.points.push_back(p3); line_list.points.push_back(p4);
-        line_list.points.push_back(p1);line_list.points.push_back(p3);
-   }
-}
+//         p1.x = Clusters[n].hull[Clusters[n].hull.size()-1].x;p1.y = Clusters[n].hull[Clusters[n].hull.size()-1].y;  p1.z = min_z;
+//         p2.x=Clusters[n].hull[0].x; p2.y=Clusters[n].hull[0].y;  p2.z=min_z;
+//         p3.x=p1.x;p3.y=p1.y;p3.z=max_z;
+//         p4.x=p2.x;p4.y=p2.y;p4.z=max_z;
+//         line_list.points.push_back(p1);line_list.points.push_back(p2);
+//         line_list.points.push_back(p3); line_list.points.push_back(p4);
+//         line_list.points.push_back(p1);line_list.points.push_back(p3);
+//    }
+// }
 
 };//类
