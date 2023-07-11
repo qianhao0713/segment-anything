@@ -8,5 +8,7 @@
     "origin_image_shape": [1080, 1920],
     "partial_width": 1.0,
     "partial_height": 1.0,
-    "print_infer_delay": true
+    "print_infer_delay": true,
+    "max_point": 10,
+    "cluster_mode": false
 }

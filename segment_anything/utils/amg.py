@@ -191,7 +191,7 @@ def build_point_grid(n_per_side: int, partial_y = 1., partial_x = 1.) -> np.ndar
     if partial_y >= 0:
         points_y = np.tile(points_one_side[:int(partial_y * n_per_side)][:, None], (1, abs(int(partial_x * n_per_side))))
     else:
-        points_y = np.tile(points_one_side[int(partial_y * n_per_side):][None, :], (abs(int(partial_x * n_per_side)), 1))
+        points_y = np.tile(points_one_side[int(partial_y * n_per_side):][:, None], (1, abs(int(partial_x * n_per_side))))
     points = np.stack([points_x, points_y], axis=-1).reshape(-1, 2)
     return points
 
