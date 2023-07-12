@@ -1,12 +1,12 @@
 {
     "generate_masks": true,
-    "encoder_trt": "weights/sam_image_encoder_fold.trt",
-    "decoder_trt": "weights/sam_vit_l_mask_decoder.trt",
+    "encoder_trt": "/home/user/gitcode/depends/segment-anything/weights/sam_image_encoder.trt",
+    "decoder_trt": "/home/user/gitcode/depends/segment-anything/weights/sam_vit_l_mask_decoder.trt",
     "points_per_side": 32,
     "points_per_batch": 64,
     "box_nms_thresh": 0.77,
     "origin_image_shape": [1080, 1920],
     "partial_width": 1.0,
-    "partial_height": 1.0,
+    "partial_height": -0.5,
     "print_infer_delay": true
 }
