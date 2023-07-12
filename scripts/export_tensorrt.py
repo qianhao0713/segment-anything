@@ -19,7 +19,7 @@ def set_quantize_dynamic_range(tensor_range_file, network):
             l_output = layer.get_output(j)
             if l_output.name in tr_map:
                 max_value = tr_map[l_output.name]
-                l_output.set_dynamic_range(-max_value, max_value)        
+                l_output.set_dynamic_range(-max_value, max_value)
 
 def export_engine_image_encoder(onnx_in='vit_l_embedding.onnx', trt_out='vit_l_embedding.trt', dynamic_input={}, dynamic_input_value={}):
     from pathlib import Path
@@ -31,6 +31,7 @@ def export_engine_image_encoder(onnx_in='vit_l_embedding.onnx', trt_out='vit_l_e
     logger = trt.Logger(trt.Logger.INFO)
     builder = trt.Builder(logger)
     profile = builder.create_optimization_profile()
+    calib_profile = builder.create_optimization_profile()
     config = builder.create_builder_config()
     workspace = 20
     config.max_workspace_size = workspace * 1 << 30
@@ -45,10 +46,13 @@ def export_engine_image_encoder(onnx_in='vit_l_embedding.onnx', trt_out='vit_l_e
     for inp in inputs:
         if inp.name in dynamic_input:
             profile.set_shape(inp.name, *dynamic_input[inp.name])
+            calib_profile.set_shape(inp.name, dynamic_input[inp.name][1], dynamic_input[inp.name][1], dynamic_input[inp.name][1])
         if inp.name in dynamic_input_value:
             profile.set_shape_input(inp.name, *dynamic_input_value[inp.name])
+            calib_profile.set_shape_input(inp.name, dynamic_input_value[inp.name][1], dynamic_input_value[inp.name][1], dynamic_input_value[inp.name][1])
         print(f'input "{inp.name}" with shape{inp.shape} {inp.dtype}')
     config.add_optimization_profile(profile)
+    config.set_calibration_profile(calib_profile)
     for out in outputs:
         print(f'output "{out.name}" with shape{out.shape} {out.dtype}')
     tensor_range_file = "%s/../calibration.cache" % os.path.abspath(os.path.dirname(__file__))
@@ -79,8 +83,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
     with torch.no_grad():
         dynamic_input = {
-            "point_coords":[(1,1,2), (64,1,2), (128,2,2)],
-            "point_labels":[(1,1), (64,1), (128,2)]
+            "point_coords":[(1,1,2), (64,100,2), (128,100,2)],
+            "point_labels":[(1,1), (64,100), (128,100)]
         }
         dynamic_input_value = {
             "orig_im_size":[(1,1),(1080,1920),(1200,2000)]

@@ -59,12 +59,34 @@ class TRTInference(object):
         # Allocate memory for multiple usage [e.g. multiple batch inference]
         input_volume = trt.volume(model_utils.ModelData.INPUT_SHAPE)
         self.numpy_array = np.zeros((self.trt_engine.max_batch_size, input_volume))
-        
-    def torch_inference(self, dict_input):
+
+    def torch_inference(self, dict_input, async_infer=False):
+        resize_output = False
         for i, binding in enumerate(self.trt_engine):
             if self.trt_engine.binding_is_input(binding):
-                self.inputs[i][...] = dict_input[binding]
-        common.do_inference_torch(self.context, bindings=self.bindings)
+                input_tensor = dict_input[binding]
+                input_shape = input_tensor.shape
+                binding_shape = [dim for dim in self.context.get_binding_shape(i)]
+                if list(input_tensor.shape) != binding_shape:
+                    self.context.set_binding_shape(i, input_shape)
+                    self.bindings[i] = input_tensor.data_ptr()
+                    self.inputs[i] = input_tensor
+                    resize_output = True
+                else:
+                    self.inputs[i][...] = input_tensor
+        if resize_output:
+            for i, binding in enumerate(self.trt_engine):
+                if not self.trt_engine.binding_is_input(binding):
+                    new_binding_shape = [dim for dim in self.context.get_binding_shape(i)]
+                    for output in self.outputs:
+                        if output.data_ptr() == self.bindings[i]:
+                            output.resize_(new_binding_shape)
+                            break
+        common.do_inference_torch(self.context, bindings=self.bindings, stream=self.stream, async_infer=async_infer)
+        return self.outputs
+
+    def torch_inference_async_result(self):
+        self.stream.synchronize()
         return self.outputs
 
     def inference(self, dict_input, h2d=True, d2h=True, device_input = [], device_input_size = []):

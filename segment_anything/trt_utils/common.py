@@ -107,7 +107,7 @@ def allocate_buffers_torch(engine, context, dynamic_shape={}, dynamic_shape_valu
         trt.float16: torch.float16,
         trt.int8: torch.int8,
         trt.int32: torch.int32,
-        trt.uint8: torch.uint8,
+        # trt.uint8: torch.uint8,
         # Note: fp8 has no equivalent numpy type
     }
     for i, binding in enumerate(engine):
@@ -126,8 +126,11 @@ def allocate_buffers_torch(engine, context, dynamic_shape={}, dynamic_shape_valu
         bindings.append(torch_data.data_ptr())
     return inputs, outputs, bindings, stream
 
-def do_inference_torch(context, bindings):    
-    context.execute_v2(bindings=bindings)
+def do_inference_torch(context, bindings, stream=None, async_infer=False):
+    if async_infer:
+        context.execute_async_v2(bindings=bindings, stream_handle=stream.handle)
+    else:
+        context.execute_v2(bindings=bindings)
     
 # This function is generalized for multiple inputs/outputs.
 # inputs and outputs are expected to be lists of HostDeviceMem objects.
