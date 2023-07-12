@@ -378,18 +378,12 @@ class SAMTRT(object):
                     masks[i, 0, ...] = masks[i, args[i], ...]
                 masks = masks[:, 0, ...][:, None, ...]
                 iou_preds = iou_preds[:, 0, ...][:, None, ...]
-                batch_data = MaskData(
-                    masks=masks.flatten(0, 1),
-                    iou_preds=iou_preds.flatten(0, 1),
-                    points=torch.as_tensor(coord_input.repeat([masks.shape[1],1,1])),
-                    lidar_box=lidar_box
-                )
-            else:
-                batch_data = MaskData(
-                    masks=masks.flatten(0, 1),
-                    iou_preds=iou_preds.flatten(0, 1),
-                    points=torch.as_tensor(coord_input.repeat([masks.shape[1],1,1])),
-                )    
+            batch_data = MaskData(
+                masks=masks.flatten(0, 1),
+                iou_preds=iou_preds.flatten(0, 1),
+                points=torch.as_tensor(coord_input.repeat([masks.shape[1],1,1])),
+                iou_token_out=iou_token_out.flatten(0, 1)
+            )
             process_data(batch_data, self.pred_iou_thresh, self.stability_score_thresh)
             mask_data.cat(batch_data)
         keep_by_nms = batched_nms(
