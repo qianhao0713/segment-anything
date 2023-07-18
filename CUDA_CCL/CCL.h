@@ -1,0 +1,1 @@
+void connectedComponentLabeling(signed int* outputImg, unsigned char* inputImg, size_t numCols, size_t numRows);

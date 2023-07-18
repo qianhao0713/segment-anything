@@ -10,5 +10,6 @@
     "partial_height": -0.5,
     "print_infer_delay": true,
     "max_point": 10,
-    "cluster_mode": false
+    "cluster_mode": false,
+    "project_max_point": 100
 }

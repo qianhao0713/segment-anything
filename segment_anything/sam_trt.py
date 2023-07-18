@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 from segment_anything.trt_utils import inference as trt_infer
 import os,json,time
 from pointcloud_cluster_cpp.lib import pointcloud_cluster
+from CUDA_CCL import cuda_ccl
 
 def get_preprocess_shape(oldh: int, oldw: int, long_side_length: int) -> Tuple[int, int]:
     """
@@ -42,25 +43,44 @@ def show_box(box, ax, color_index):
     x0, y0 = box[0], box[1]
     w, h = box[2], box[3]
     ax.add_patch(plt.Rectangle((x0, y0), w, h, edgecolor=color, facecolor=(0,0,0,0), lw=2))
+            
 
-def process_data(data, pred_iou_thresh = 0.88, stability_score_thresh = 0.95):
-    pred_iou_thresh = pred_iou_thresh
+def process_data(data, cluster_mode=False, use_lidar=False):
+    pred_iou_thresh = 0.88
     mask_threshold = 0.0
-    stability_score_thresh = stability_score_thresh
+    stability_score_thresh = 0.95
     stability_score_offset = 1.0
     # Filter by predicted IoU
+    if use_lidar:
+        stability_score_thresh = 0.7
+        if cluster_mode:
+            lidar_iou_thresh = 0.2
+            keep_mask = data["lidar_iou"] > lidar_iou_thresh
+            data.filter(keep_mask)
+            pred_iou_thresh = 0.4
     if pred_iou_thresh > 0.0:
         keep_mask = data["iou_preds"] > pred_iou_thresh
         data.filter(keep_mask)
+
     # Calculate stability score
     data["stability_score"] = calculate_stability_score(
         data["masks"], mask_threshold, stability_score_offset
     )
     keep_mask = data["stability_score"] >= stability_score_thresh
     data.filter(keep_mask)
-
     # Threshold masks and calculate boxes
     data["masks"] = data["masks"] > mask_threshold
+    if use_lidar:
+        mask_label = torch.zeros_like(data["masks"], dtype=torch.int32, device=data["masks"].device)
+        cuda_ccl.torch_ccl(mask_label, data["masks"], mask_label.shape[1], mask_label.shape[2])
+        for i in range(mask_label.shape[0]):
+            mask_label_i=mask_label[i]
+            mask_i = data["masks"][i]
+            tlabel, tcount = torch.unique(mask_label_i[mask_label_i>0], return_counts=True)
+            maxlabelcount = torch.argmax(tcount)
+            maxlabel = tlabel[maxlabelcount].item()
+            mask_i[mask_label_i!=maxlabel] = False
+
     data["boxes"] = batched_mask_to_box(data["masks"])
 
 def lidar_coords2box(coords):
@@ -70,6 +90,26 @@ def lidar_coords2box(coords):
     y2=np.max(coords[:, :, 1], axis=1)
     box=np.hstack([x1, y1, x2, y2])
     return box
+
+def resample_coords(coords, max_point, n_resample):
+    import random
+    coords_resampled = []
+    labels = []
+    for i, coord in enumerate(coords):
+        n_coord = coord.shape[0]
+        if n_coord < max_point:
+            coords_resampled.append(coord)
+            labels.append(i)
+        else:
+            indexes=list(range(n_coord))
+            random.shuffle(indexes)
+            duplicates = max_point * n_resample / len(indexes)
+            if duplicates > 0:
+                indexes = indexes * (int(duplicates) + 1)
+            for j in range(n_resample):
+                coords_resampled.append(coord[indexes[j*max_point: (j+1)*max_point]])
+                labels.append(i)
+    return labels, coords_resampled
 
 def gen_background_coord(lidar_box, r=1.5, img_size=[1920, 1080]):
     center_x = (lidar_box[:,0]+lidar_box[:,2])/2
@@ -91,7 +131,7 @@ def gen_background_coord(lidar_box, r=1.5, img_size=[1920, 1080]):
     return back_points
 
 
-def get_iou_argmax(bbox1, bbox2):
+def get_lidar_iou(bbox1, bbox2):
     b1, _ = bbox1.shape
     b2, n2, _ = bbox2.shape
     bbox1 = torch.tile(bbox1[:,None,:], [1, n2, 1])
@@ -102,7 +142,7 @@ def get_iou_argmax(bbox1, bbox2):
     inter_area = torch.maximum(x2_min-x1_max, torch.tensor(0)) * torch.maximum(y2_min-y1_max, torch.tensor(0))
     outer_area = (bbox1[:,:,2]-bbox1[:,:,0]) * (bbox1[:,:,3]-bbox1[:,:,1]) + (bbox2[:,:,2]-bbox2[:,:,0]) * (bbox2[:,:,3]-bbox2[:,:,1]) - inter_area
     iou = inter_area / outer_area
-    return torch.argmax(iou, axis=1)
+    return iou
 
 
 class LidarParam:
@@ -165,18 +205,19 @@ class SAMTRT(object):
         if self.use_lidar:
             self.pointcloud_cluster_tool = pointcloud_cluster.PyPointCloud()
             self.max_point = trt_conf.get('max_point', 40)
+            self.project_max_point = trt_conf.get('project_max_point', 100)
             self.cluster_mode = trt_conf.get('cluster_mode', False)
             if self.cluster_mode:
-                self.pred_iou_thresh = 0
-                self.stability_score_thresh = 0
+                self.pred_iou_thresh = 0.2
+                self.stability_score_thresh = 0.75
             else:
                 self.pred_iou_thresh = 0.88
                 self.stability_score_thresh = 0
             self.lidar_param = LidarParam()
 
             if self.cluster_mode:
-                self.coords_input = torch.zeros([self.points_per_batch, self.max_point, 2], dtype=torch.float32, device=self.device)
-                self.labels_input = torch.zeros([self.points_per_batch, self.max_point], dtype=torch.float32, device=self.device)
+                self.coords_input = torch.zeros([128, self.max_point, 2], dtype=torch.float32, device=self.device)
+                self.labels_input = torch.zeros([128, self.max_point], dtype=torch.float32, device=self.device)
             else:
                 self.coords_input = torch.zeros([1024, 1, 2],  dtype=torch.float32, device=self.device)
                 self.labels_input = torch.zeros([1024, 1], dtype=torch.float32, device=self.device)
@@ -240,8 +281,8 @@ class SAMTRT(object):
         for i in range(labels.max() + 1):
             cluster = points[labels == i]
             n_cluster_point = cluster.shape[0]
-            if n_cluster_point > self.max_point:
-                shuffle = np.random.randint(0, n_cluster_point, size=self.max_point)
+            if n_cluster_point > self.project_max_point:
+                shuffle = np.random.randint(0, n_cluster_point, size=self.project_max_point)
                 cluster = cluster[shuffle]
             cluster = cluster[:, :3].astype(np.float32)
             tmp_point_cloud = np.hstack((cluster, np.ones([len(cluster), 1])))
@@ -254,6 +295,7 @@ class SAMTRT(object):
                 continue
             coords.append(coord)
         return coords
+
 
     def prepare_image(self, ori_image):
         image = self._pre_process_image(ori_image)
@@ -278,7 +320,6 @@ class SAMTRT(object):
             iou_token_out, iou_preds, masks = self.mask_decoder_engine.torch_inference(ort_inputs2)
         else:
             torch.cuda.synchronize()
-            t1=time.time()
             sparse_embeddings, dense_embeddings = self.sam.prompt_encoder(
                 points=(ort_inputs2["point_coords"], ort_inputs2["point_labels"]),
                 boxes=None,
@@ -292,15 +333,12 @@ class SAMTRT(object):
                 multimask_output=True,
             )
             torch.cuda.synchronize()
-            t3=time.time()
             masks = self.sam.postprocess_masks(
                 low_res_masks,
                 input_size=[self.image_size, self.image_size],
                 original_size=self.origin_image_shape,
             )
             torch.cuda.synchronize()
-            t4=time.time()
-            print("prompt_encoder: %2.3f, mask_decoder: %2.3f, postprocess: %2.3f" % (t2-t1, t3-t2, t4-t3) )
             best_idx = torch.argmax(iou_preds, dim=1)
             masks = masks[torch.arange(masks.shape[0]), best_idx, :, :].unsqueeze(1)
             iou_preds = iou_preds[torch.arange(masks.shape[0]), best_idx].unsqueeze(1)
@@ -321,38 +359,42 @@ class SAMTRT(object):
         points = self.pointcloud_cluster_tool.execute_cluster(points)
         points = points[points[:,5]>=0]
         coords = self._project_by_cluster(points)
-        origin_coord = np.copy(coords)
 
         t0_1=time.time()
 
         n_classes = len(coords)
         if self.cluster_mode:
-            coord_arr = np.zeros([n_classes, self.max_point, 2])
-            label_arr = np.zeros([n_classes, self.max_point])
-            lidar_box = np.zeros([n_classes, 4])
+            coords_labels, coords_resample = resample_coords(coords, max_point=self.max_point, n_resample=2)
+            n_resampled_class = len(coords_resample)
+            coord_arr = np.zeros([n_resampled_class, self.max_point, 2])
+            label_arr = np.zeros([n_resampled_class, self.max_point])
+            orig_lidar_box = np.zeros([n_classes, 4])
+            lidar_boxes = np.zeros([n_resampled_class, 4])
             for i in range(n_classes):
                 coord = coords[i]
-                lidar_box[i, 0] = np.min(coord[:, 0], axis=0)
-                lidar_box[i, 1] = np.min(coord[:, 1], axis=0)
-                lidar_box[i, 2] = np.max(coord[:, 0], axis=0)
-                lidar_box[i, 3] = np.max(coord[:, 1], axis=0)
-            for i in range(n_classes):
-                coord = coords[i]
+                orig_lidar_box[i, 0] = np.min(coord[:, 0], axis=0)
+                orig_lidar_box[i, 1] = np.min(coord[:, 1], axis=0)
+                orig_lidar_box[i, 2] = np.max(coord[:, 0], axis=0)
+                orig_lidar_box[i, 3] = np.max(coord[:, 1], axis=0)
+
+            for i in range(n_resampled_class):
+                coord = coords_resample[i]
                 coord_num = coord.shape[0]
                 coord_arr[i, :coord_num, :] = coord
                 label_arr[i, :coord_num] = 1
                 label_arr[i, coord_num:] = -1
+                lidar_boxes[i] = orig_lidar_box[coords_labels[i]]
 
-            self.coords_input[:n_classes] = torch.from_numpy(coord_arr)
-            self.labels_input[:n_classes] = torch.from_numpy(label_arr)
-            coords_input = self.coords_input[:n_classes]
-            labels_input = self.labels_input[:n_classes]
-            lidar_box = torch.from_numpy(lidar_box).to(self.device)
+            self.coords_input[:n_resampled_class] = torch.from_numpy(coord_arr)
+            self.labels_input[:n_resampled_class] = torch.from_numpy(label_arr)
+            coords_input = self.coords_input[:n_resampled_class]
+            labels_input = self.labels_input[:n_resampled_class]
+            lidar_boxes = torch.from_numpy(lidar_boxes).to(self.device)
         else:
             coord = np.concatenate(coords, axis=0)
             n_coord = coord.shape[0]
-            self.coords_input[:n_coord,...] = torch.from_numpy(coord[:,None,:])
-            self.labels_input[:n_coord,...] = 1
+            self.coords_input[:n_coord, ...] = torch.from_numpy(coord[:,None,:])
+            self.labels_input[:n_coord, ...] = 1
             coords_input = self.coords_input[:n_coord]
             labels_input = self.labels_input[:n_coord]
         t0_2=time.time()
@@ -366,31 +408,40 @@ class SAMTRT(object):
         }
         res = []
         mask_data = MaskData()
-        for (coord_input, label_input) in batch_iterator(self.points_per_batch, coords_input, labels_input):
+        for (coord_input, label_input, lidar_box) in batch_iterator(self.points_per_batch, coords_input, labels_input, lidar_boxes):
             coord_input = self.transf.apply_coords(coord_input, self.origin_image_shape)
             ort_inputs2["point_coords"] = coord_input
             ort_inputs2["point_labels"] = label_input
             iou_preds, masks, iou_token_out = self.infer_mask(ort_inputs2)
             if self.cluster_mode:
                 sam_box = batched_mask_to_box(masks>0)
-                args=get_iou_argmax(lidar_box, sam_box)
-                for i in range(args.shape[0]):
-                    masks[i, 0, ...] = masks[i, args[i], ...]
-                masks = masks[:, 0, ...][:, None, ...]
-                iou_preds = iou_preds[:, 0, ...][:, None, ...]
-            batch_data = MaskData(
-                masks=masks.flatten(0, 1),
-                iou_preds=iou_preds.flatten(0, 1),
-                points=torch.as_tensor(coord_input.repeat([masks.shape[1],1,1])),
-                iou_token_out=iou_token_out.flatten(0, 1)
-            )
-            process_data(batch_data, self.pred_iou_thresh, self.stability_score_thresh)
+                lidar_iou=get_lidar_iou(lidar_box, sam_box)
+                batch_data = MaskData(
+                   masks=masks.flatten(0, 1),
+                   iou_preds=iou_preds.flatten(0, 1),
+                   lidar_iou=lidar_iou.flatten(0, 1),
+                   points=torch.as_tensor(coord_input.repeat([masks.shape[1],1,1])),
+                   iou_token_out=iou_token_out.flatten(0, 1)
+                )
+            else:
+                batch_data = MaskData(
+                   masks=masks.flatten(0, 1),
+                   iou_preds=iou_preds.flatten(0, 1),
+                   points=torch.as_tensor(coord_input.repeat([masks.shape[1],1,1])),
+                   iou_token_out=iou_token_out.flatten(0, 1)
+                )
+            process_data(batch_data, self.use_lidar, self.cluster_mode)
             mask_data.cat(batch_data)
+
+        if self.cluster_mode:
+            iou_threshold = 0.5
+        else:
+            iou_threshold = 0.77
         keep_by_nms = batched_nms(
             mask_data["boxes"].float(),
             mask_data["iou_preds"],
             torch.zeros_like(mask_data["boxes"][:, 0]),  # categories
-            iou_threshold=0.77,
+            iou_threshold=iou_threshold,
         )
         t2=time.time()
         mask_data.filter(keep_by_nms)
@@ -410,7 +461,7 @@ class SAMTRT(object):
         t3=time.time()
         if self.print_infer_delay:
             print("vit_infer: %2.3f ms, lidar_processing: %2.3f ms, input_h2d: %2.3f ms, mask_infer: %2.3f ms, postprocess: %2.3f ms, all: %2.3f ms" % ((t1-t0) * 1000, (t0_1-t0_0)*1000, (t0_2-t0_1)*1000, (t2-t1) * 1000, (t3-t2)*1000, (t3-t0)*1000))
-        return origin_coord, res
+        return coords, res
 
 
     def infer_grid_coord(self, image):

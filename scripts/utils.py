@@ -50,11 +50,12 @@ def get_pcd_pair(imgf_dir, lidarf_dir):
 
 def show_lidar_result(img, coords, res, show_mask=False, video_writer=None):
     import cv2, random, sys
-    for coord in coords:
-        color = [255,0,0]
-        for pixel in coord:
-            pixel = pixel.astype('int32')
-            img = cv2.circle(img, pixel, 3, color, 3)
+    if coords is not None:
+        for coord in coords:
+            color = [255,0,0]
+            for pixel in coord:
+                pixel = pixel.astype('int32')
+                img = cv2.circle(img, pixel, 3, color, 3)
     for i in range(len(res)):
         color = random_colors[i]
         bbox=[int(x) for x in res[i]['bbox']]
@@ -66,6 +67,40 @@ def show_lidar_result(img, coords, res, show_mask=False, video_writer=None):
     cv2.imshow("test", img)
     if video_writer:
         video_writer.write(img)   
+    waitKey = cv2.waitKey(25)
+    if waitKey & 0xFF == ord('q'):
+        cv2.destroyAllWindows()
+        video_writer.release()
+        sys.exit(0)
+    if waitKey & 0xFF == ord('p'):
+        while True:
+            if cv2.waitKey(25) & 0xFF == ord('c'):
+                break
+
+def show_compare_result(img, res, res2, show_mask=False, video_writer=None):
+    import cv2, random, sys
+    import numpy as np
+    img2 = img.copy()
+    for i in range(len(res)):
+        color = random_colors[i]
+        bbox=[int(x) for x in res[i]['bbox']]
+        x, y, w, h = bbox
+        # img = cv2.rectangle(img, [x, y], [x+w, y+h], color, 2)
+        if show_mask:
+            mask=res[i]['segmentation']
+            img[mask]=color
+    for i in range(len(res2)):
+        color = random_colors[i]
+        bbox=[int(x) for x in res2[i]['bbox']]
+        x, y, w, h = bbox
+        # img = cv2.rectangle(img, [x, y], [x+w, y+h], color, 2)
+        if show_mask:
+            mask=res2[i]['segmentation']
+            img2[mask]=color
+    concat_img = np.concatenate((img, img2), axis=1)
+    cv2.imshow("test", concat_img)
+    if video_writer:
+        video_writer.write(concat_img)
     waitKey = cv2.waitKey(25)
     if waitKey & 0xFF == ord('q'):
         cv2.destroyAllWindows()
