@@ -1,0 +1,9 @@
+{
+    "generate_masks": false,
+    "encoder_trt": "/home/qianhao/segment-anything/weights/sam_freespace_encoder_folded.trt",
+    "decoder_trt": "/home/qianhao/segment-anything/weights/sam_freespace_decoder_folded.trt",
+    "roadseg_mode": true,
+    "box_nms_thresh": 0.77,
+    "origin_image_shape": [1080, 1920],
+    "print_infer_delay": true
+}
