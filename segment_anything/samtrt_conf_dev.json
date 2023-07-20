@@ -1,0 +1,15 @@
+{
+    "generate_masks": true,
+    "encoder_trt": "/home/qianhao/segment-anything/weights/sam_image_encoder_fold.trt",
+    "decoder_trt": "/home/qianhao/segment-anything/weights/sam_vit_l_mask_decoder.trt",
+    "points_per_side": 32,
+    "points_per_batch": 64,
+    "box_nms_thresh": 0.77,
+    "origin_image_shape": [1080, 1920],
+    "partial_width": 1.0,
+    "partial_height": 1.0,
+    "print_infer_delay": true,
+    "max_point": 20,
+    "project_max_point": 100,
+    "cluster_mode": true
+}

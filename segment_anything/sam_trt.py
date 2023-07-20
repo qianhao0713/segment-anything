@@ -175,7 +175,7 @@ class SAMTRT(object):
         self.conf_path = '%s/samtrt_conf.json' % os.path.dirname(__file__)
         trt_conf = {}
         if conf_path is not None:
-            self.conf_path = "%s/%s" % (os.path.dirname(__file__), conf_path)
+            self.conf_path = conf_path
         with open(self.conf_path) as conf_file:
             trt_conf = json.load(conf_file)
         root_dir = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
@@ -184,6 +184,8 @@ class SAMTRT(object):
         self.origin_image_shape = trt_conf.get('origin_image_shape')
         assert self.encoder_trt is not None and self.decoder_trt is not None, "tensorRT engine file not given"
         assert self.origin_image_shape is not None, "origin_image_shape not given"
+        self.use_trt = trt_conf.get('use_trt', True)
+        self.roadseg_mode = trt_conf.get('roadseg_mode', False)
         self.generate_masks = trt_conf.get('generate_mask', True)
         self.point_per_side = trt_conf.get('point_per_side', 32)
         self.points_per_batch = trt_conf.get('point_per_batch', 64)
@@ -196,8 +198,10 @@ class SAMTRT(object):
         self.pixel_mean = torch.Tensor(pixel_mean).view(-1, 1, 1).to(self.device)
         self.pixel_std = torch.Tensor(pixel_std).view(-1, 1, 1).to(self.device)
 
-        self.use_trt = trt_conf.get('use_trt', True)
         self.use_lidar = trt_conf.get('use_lidar', False)
+        self.mask_input = torch.zeros((1, 1, 256, 256), dtype=torch.float32, device=self.device)
+        self.has_mask_input = torch.zeros(1, dtype=torch.float32, device=self.device)
+        self.orig_im_size = torch.as_tensor(self.origin_image_shape, device=self.device)
         if "use_trt" in kwargs:
             self.use_trt = kwargs["use_trt"]
         if "use_lidar" in kwargs:
@@ -221,9 +225,7 @@ class SAMTRT(object):
             else:
                 self.coords_input = torch.zeros([1024, 1, 2],  dtype=torch.float32, device=self.device)
                 self.labels_input = torch.zeros([1024, 1], dtype=torch.float32, device=self.device)
-            self.mask_input = torch.zeros((1, 1, 256, 256), dtype=torch.float32, device=self.device)
-            self.has_mask_input = torch.zeros(1, dtype=torch.float32, device=self.device)
-            self.orig_im_size = torch.as_tensor(self.origin_image_shape, device=self.device)
+
 
     def load_sam_trt(self):
         dynamic_shape = {}
@@ -239,7 +241,11 @@ class SAMTRT(object):
             dynamic_shape['point_coords'] = [self.points_per_batch, 1, 2]
             dynamic_shape['point_labels'] = [self.points_per_batch, 1]
         self.vit_embedding_engine = trt_infer.TRTInference(trt_engine_path=self.encoder_trt, is_torch_infer=True, device=self.device)
-        self.mask_decoder_engine = trt_infer.TRTInference(trt_engine_path=self.decoder_trt, dynamic_shape=dynamic_shape, dynamic_shape_value=dynamic_shape_value, is_torch_infer=True, device=self.device)
+        if not self.roadseg_mode:
+            self.mask_decoder_engine = trt_infer.TRTInference(trt_engine_path=self.decoder_trt, dynamic_shape=dynamic_shape, dynamic_shape_value=dynamic_shape_value, is_torch_infer=True, device=self.device)
+        else:
+            dynamic_shape_value = {"ori_size": self.origin_image_shape}
+            self.mask_decoder_engine = trt_infer.TRTInference(trt_engine_path=self.decoder_trt, dynamic_shape_value=dynamic_shape_value, is_torch_infer=True, device=self.device)
 
     def load_sam_base(self):
         cur_dir = os.path.abspath(os.path.dirname(__file__))
@@ -325,6 +331,7 @@ class SAMTRT(object):
                 boxes=None,
                 masks=None
             )
+            t2=time.time()
             low_res_masks, iou_preds, iou_token_out = self.sam.mask_decoder(
                 image_embeddings=ort_inputs2["image_embeddings"],
                 image_pe=self.sam.prompt_encoder.get_dense_pe(),
@@ -345,6 +352,23 @@ class SAMTRT(object):
         torch.cuda.synchronize()
         return iou_preds.detach(), masks.detach(), iou_token_out.detach()
 
+    def infer_freespace(self, image):
+        t0=time.time()
+        ort_inputs1 = {
+            "image": image
+        }
+        image_embeddings, inner_state = self.vit_embedding_engine.torch_inference(ort_inputs1)
+        t1=time.time()
+        ort_inputs2 = {
+            "image_embeddings": image_embeddings,
+            "inner_state": inner_state,
+            "ori_size": self.orig_im_size
+        }
+        masks = self.mask_decoder_engine.torch_inference(ort_inputs2)[0]
+        t2=time.time()
+        if self.print_infer_delay:
+            print("vit_infer: %3.2f ms, mask_infer: %3.2f ms" % ((t1-t0) * 1000, (t2-t1)*1000))
+        return image_embeddings, masks
 
     def infer_lidar_points(self, image, points):
         t0=time.time()
