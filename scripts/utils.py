@@ -48,8 +48,20 @@ def get_pcd_pair(imgf_dir, lidarf_dir):
             f.write("%s,%s\n" % (imgf_list[k], matched_lidar_list[k]))
     return macthing_list
 
+def prepare_lidar(points):
+    import numpy as np
+    filter = np.all(~np.isnan(points), axis=1)
+    points = points[filter, :]
+    angle = np.angle(points[:, 0] + 1j * points[:, 1], deg=True) * 5 + 900
+    points[:, 3] = angle
+    points = points[points[:, 0] > 0]
+    return points
+
+
 def show_lidar_result(img, coords, res, show_mask=False, video_writer=None):
     import cv2, random, sys
+    cv2.namedWindow("test", 0)
+    cv2.resizeWindow("test", 1000, 600)
     if coords is not None:
         for coord in coords:
             color = [255,0,0]
@@ -70,7 +82,8 @@ def show_lidar_result(img, coords, res, show_mask=False, video_writer=None):
     waitKey = cv2.waitKey(25)
     if waitKey & 0xFF == ord('q'):
         cv2.destroyAllWindows()
-        video_writer.release()
+        if video_writer:
+            video_writer.release()
         sys.exit(0)
     if waitKey & 0xFF == ord('p'):
         while True:

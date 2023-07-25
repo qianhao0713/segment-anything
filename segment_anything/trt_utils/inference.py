@@ -16,7 +16,7 @@ TRT_LOGGER = trt.Logger(trt.Logger.ERROR)
 
 class TRTInference(object):
     """Manages TensorRT objects for model inference."""
-    def __init__(self, trt_engine_path, trt_engine_datatype=trt.DataType.FLOAT, batch_size=1, dynamic_shape={}, dynamic_shape_value={}, is_torch_infer=False, device=None):
+    def __init__(self, trt_engine_path, trt_engine_datatype=trt.DataType.FLOAT, batch_size=1, dynamic_shape={}, dynamic_shape_value={}, is_torch_infer=False, is_gpuarray_infer=False, device=None):
         """Initializes TensorRT objects needed for model inference.
         Args:
             trt_engine_path (str): path where TensorRT engine should be stored
@@ -30,7 +30,6 @@ class TRTInference(object):
         # some of them will be needed during inference
         import torch
         trt.init_libnvinfer_plugins(TRT_LOGGER, '')
-
         # Initialize runtime needed for loading TensorRT engine from file
         self.trt_runtime = trt.Runtime(TRT_LOGGER)
         # TRT engine placeholder
@@ -40,6 +39,8 @@ class TRTInference(object):
         print("  * Inference precision - {}".format(trt_engine_datatype))
         print("  * Max batch size - {}\n".format(batch_size))
 
+        cuda.init()
+        self.cfx = cuda.Device(device).make_context()
         # If engine is not cached, we need to build it
         if not os.path.exists(trt_engine_path):
             raise Exception('tensorRT engine file not exist')
@@ -48,7 +49,6 @@ class TRTInference(object):
         # Execution context is needed for inference
 
         self.context = self.trt_engine.create_execution_context()
-
         # This allocates memory for network inputs/outputs on both CPU and GPU
         if is_torch_infer:
             self.inputs, self.outputs, self.bindings, self.stream = \
@@ -61,6 +61,7 @@ class TRTInference(object):
         self.numpy_array = np.zeros((self.trt_engine.max_batch_size, input_volume))
 
     def torch_inference(self, dict_input, async_infer=False):
+        self.cfx.push()
         resize_output = False
         for i, binding in enumerate(self.trt_engine):
             if self.trt_engine.binding_is_input(binding):
@@ -83,6 +84,7 @@ class TRTInference(object):
                             output.resize_(new_binding_shape)
                             break
         common.do_inference_torch(self.context, bindings=self.bindings, stream=self.stream, async_infer=async_infer)
+        self.cfx.pop()
         return self.outputs
 
     def torch_inference_async_result(self):

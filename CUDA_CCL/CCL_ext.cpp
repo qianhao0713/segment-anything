@@ -6,6 +6,7 @@
 void torch_ccl(torch::Tensor& label, const torch::Tensor& mask, size_t n_row, size_t n_col) {
     GpuTimer timer;
 	timer.Start();
+    cudaSetDevice(mask.device().index());
     auto shape = mask.sizes();
     if (shape.size() == 2) {
         connectedComponentLabeling((signed int*) label.data_ptr(), (unsigned char*) mask.data_ptr(), n_col, n_row);
@@ -25,6 +26,8 @@ void torch_ccl(torch::Tensor& label, const torch::Tensor& mask, size_t n_row, si
             }  
         }
     }
+    // cudaDeviceSynchronize();
+    cudaSetDevice(0);
     timer.Stop();
     // std::cout << "GPU code ran in: " << timer.Elapsed() << "ms" << std::endl;
 }

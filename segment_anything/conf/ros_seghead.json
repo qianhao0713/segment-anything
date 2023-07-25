@@ -1,0 +1,5 @@
+{
+    "trt_path": "/home/qianhao/segment-anything/weights/sam_freespace_decoder_folded.trt",
+    "origin_image_shape": [1080, 1920]
+    
+}

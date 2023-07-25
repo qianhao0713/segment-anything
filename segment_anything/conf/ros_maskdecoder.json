@@ -1,0 +1,12 @@
+{
+    "trt_path": "/home/qianhao/segment-anything/weights/sam_vit_h_mask_decoder_folded.trt",
+    "points_per_batch": 64,
+    "max_point": 20,
+    "origin_image_shape": [1080, 1920],
+    "use_lidar": true,
+    "cluster_mode": true,
+    "project_max_point": 100,
+    "point_per_side": 32,
+    "partial_width": 1.0,
+    "partial_height": 1.0
+}

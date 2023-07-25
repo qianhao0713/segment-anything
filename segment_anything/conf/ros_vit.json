@@ -1,0 +1,4 @@
+{
+    "trt_path": "/home/qianhao/segment-anything/weights/sam_freespace_encoder_folded.trt",
+    "buffer_size": 10
+}
