@@ -77,6 +77,7 @@ def test_lidar():
 
 def test_multiprocess():
     import multiprocessing as mp
+    import numpy as np
     from multiprocessing import Process
     from multiprocessing import Queue
     def vit_process(q):
