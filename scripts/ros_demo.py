@@ -112,7 +112,7 @@ def test_multiprocess():
         points = utils.prepare_lidar(point_cloud)
         points = pointcloud_cluster_tool.execute_cluster(points)
         points = points[points[:,5]>=0]
-        coords, res = mask_decoder_model.infer(image_embedding, points)
+        coords, res = mask_decoder_model.infer(image_embeddings, points)
 
     q=Queue()
     mp.get_context('spawn')
