@@ -53,12 +53,9 @@ def process_data(data, cluster_mode=False, use_lidar=False):
     stability_score_offset = 1.0
     # Filter by predicted IoU
     if use_lidar:
-        stability_score_thresh = 0.7
+        stability_score_thresh = 0.6
         if cluster_mode:
-            lidar_iou_thresh = 0.5
-            keep_mask = data["lidar_iou"] > lidar_iou_thresh
-            data.filter(keep_mask)
-            pred_iou_thresh = 0.7
+            pred_iou_thresh = 0.75
     if pred_iou_thresh > 0.0:
         keep_mask = data["iou_preds"] > pred_iou_thresh
         data.filter(keep_mask)
@@ -81,17 +78,21 @@ def process_data(data, cluster_mode=False, use_lidar=False):
             maxlabel = tlabel[maxlabelcount].item()
             mask_i[mask_label_i!=maxlabel] = False
     data["boxes"] = batched_mask_to_box(data["masks"])
+    if use_lidar:
+        lidar_iou=get_lidar_iou(data["lidar_box"], data["boxes"])
+        keep_mask = lidar_iou>0.5
+        data.filter(keep_mask)
 
 def get_lidar_iou(bbox1, bbox2):
-    b1, _ = bbox1.shape
-    b2, n2, _ = bbox2.shape
-    bbox1 = torch.tile(bbox1[:,None,:], [1, n2, 1])
-    x1_max = torch.maximum(bbox1[:,:,0], bbox2[:,:,0])
-    y1_max = torch.maximum(bbox1[:,:,1], bbox2[:,:,1])
-    x2_min = torch.minimum(bbox1[:,:,2], bbox2[:,:,2])
-    y2_min = torch.minimum(bbox1[:,:,3], bbox2[:,:,3])
+    # b1, _ = bbox1.shape
+    # b2, n2, _ = bbox2.shape
+    # bbox1 = torch.tile(bbox1[:,None,:], [1, n2, 1])
+    x1_max = torch.maximum(bbox1[:,0], bbox2[:,0])
+    y1_max = torch.maximum(bbox1[:,1], bbox2[:,1])
+    x2_min = torch.minimum(bbox1[:,2], bbox2[:,2])
+    y2_min = torch.minimum(bbox1[:,3], bbox2[:,3])
     inter_area = torch.maximum(x2_min-x1_max, torch.tensor(0)) * torch.maximum(y2_min-y1_max, torch.tensor(0))
-    outer_area = (bbox1[:,:,2]-bbox1[:,:,0]) * (bbox1[:,:,3]-bbox1[:,:,1]) + (bbox2[:,:,2]-bbox2[:,:,0]) * (bbox2[:,:,3]-bbox2[:,:,1]) - inter_area
+    outer_area = (bbox1[:,2]-bbox1[:,0]) * (bbox1[:,3]-bbox1[:,1]) + (bbox2[:,2]-bbox2[:,0]) * (bbox2[:,3]-bbox2[:,1]) - inter_area
     iou = inter_area / outer_area
     return iou
 
@@ -305,7 +306,7 @@ class SamRosMaskDecoder(SamRosBase):
         coords = self._project_by_cluster(lidar_points)
         n_classes = len(coords)
         if self.cluster_mode:
-            coords_labels, coords_resample = resample_coords(coords, max_point=self.max_point, n_resample=1)
+            coords_labels, coords_resample = resample_coords(coords, max_point=self.max_point, n_resample=2)
             n_resampled_class = len(coords_resample)
             coord_arr = np.zeros([n_resampled_class, self.max_point, 2], dtype=np.float32)
             label_arr = np.zeros([n_resampled_class, self.max_point], dtype=np.float32)
@@ -348,12 +349,14 @@ class SamRosMaskDecoder(SamRosBase):
             ort_inputs["point_labels"] = label_input
             iou_token_out, iou_preds, masks = self.model.torch_inference(ort_inputs)
             if self.cluster_mode:
-                sam_box = batched_mask_to_box(masks>0)
-                lidar_iou=get_lidar_iou(lidar_box, sam_box)
+                # sam_box = batched_mask_to_box(masks>0)
+                # lidar_iou=get_lidar_iou(lidar_box, sam_box)
+                _, n2 = iou_preds.shape
+                lidar_box = torch.tile(lidar_box[:,None,:], [1, n2, 1])
                 batch_data = MaskData(
                    masks=masks.flatten(0, 1),
                    iou_preds=iou_preds.flatten(0, 1),
-                   lidar_iou=lidar_iou.flatten(0, 1),
+                   lidar_box=lidar_box.flatten(0, 1),
                    points=torch.as_tensor(coord_input.repeat([masks.shape[1],1,1])),
                    iou_token_out=iou_token_out.flatten(0, 1)
                 )
@@ -443,12 +446,12 @@ class SamRosMaskDecoder(SamRosBase):
             res = self._infer_image(inputs)
         return res
 
-    def get_buffer(buffer):
+    def get_buffer(self, buffer):
         ipc_handle = buffer.get('ipc_handle')
         ipc_handle = bytearray.fromhex(ipc_handle)
-        x_ptr = drv.IPCMemoryHandle(h)
+        x_ptr = drv.IPCMemoryHandle(ipc_handle)
         shape = buffer.get('shape')
         image_embeddings = torch.zeros(shape, dtype=torch.float32, device=self.device)
-        drv.memcpy_dtod(image_embeddings.data_ptr(), x_ptr, trt.volume(image_embeddings.shape)*image_embeddings.dtype.itemsize)
+        drv.memcpy_dtod(image_embeddings.data_ptr(), x_ptr, trt.volume(image_embeddings.shape)*image_embeddings.element_size())
         return image_embeddings
 
