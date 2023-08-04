@@ -1,5 +1,5 @@
 {
-    "trt_path": "/home/qianhao/segment-anything/weights/sam_vit_h_mask_decoder_folded.trt",
+    "trt_path": "/home/user/gitcode/depends/segment-anything/weights/sam_vit_l_mask_decoder_lidar.trt",
     "points_per_batch": 64,
     "max_point": 8,
     "origin_image_shape": [1080, 1920],

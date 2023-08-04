@@ -1,4 +1,4 @@
 {
-    "trt_path": "/home/qianhao/segment-anything/weights/sam_freespace_encoder_folded.trt",
+    "trt_path": "/home/user/gitcode/depends/segment-anything/weights/sam_image_encoder.trt",
     "buffer_size": 10
 }

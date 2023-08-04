@@ -85,4 +85,5 @@ if __name__ == '__main__':
         dynamic_input_value = {
             "ori_size":[(1,1),(1080,1920),(1200,2000)]
         }
+        dynamic_input_value = {}
         export_engine_image_encoder(onnx_in=args.onnx, trt_out=args.trt, dynamic_input={}, dynamic_input_value=dynamic_input_value)

@@ -67,16 +67,16 @@ def process_data(data, cluster_mode=False, use_lidar=False):
     data.filter(keep_mask)
     # Threshold masks and calculate boxes
     data["masks"] = data["masks"] > mask_threshold
-    if use_lidar:
-        mask_label = torch.zeros_like(data["masks"], dtype=torch.int32, device=data["masks"].device)
-        cuda_ccl.torch_ccl(mask_label, data["masks"], mask_label.shape[1], mask_label.shape[2])
-        for i in range(mask_label.shape[0]):
-            mask_label_i=mask_label[i]
-            mask_i = data["masks"][i]
-            tlabel, tcount = torch.unique(mask_label_i[mask_label_i>0], return_counts=True)
-            maxlabelcount = torch.argmax(tcount)
-            maxlabel = tlabel[maxlabelcount].item()
-            mask_i[mask_label_i!=maxlabel] = False
+    # if use_lidar:
+    #     mask_label = torch.zeros_like(data["masks"], dtype=torch.int32, device=data["masks"].device)
+    #     cuda_ccl.torch_ccl(mask_label, data["masks"], mask_label.shape[1], mask_label.shape[2])
+    #     for i in range(mask_label.shape[0]):
+    #         mask_label_i=mask_label[i]
+    #         mask_i = data["masks"][i]
+    #         tlabel, tcount = torch.unique(mask_label_i[mask_label_i>0], return_counts=True)
+    #         maxlabelcount = torch.argmax(tcount)
+    #         maxlabel = tlabel[maxlabelcount].item()
+    #         mask_i[mask_label_i!=maxlabel] = False
     data["boxes"] = batched_mask_to_box(data["masks"])
     if use_lidar:
         lidar_iou=get_lidar_iou(data["lidar_box"], data["boxes"])
@@ -188,6 +188,8 @@ class SamRosVit(SamRosBase):
         }
         image_embeddings, inner_state = self.model.torch_inference(ort_inputs)
         return image_embeddings, inner_state
+        #image_embeddings = self.model.torch_inference(ort_inputs)[0]
+        #return image_embeddings
 
 
     def store_buffer(self, image_embeddings):
@@ -274,6 +276,7 @@ class SamRosMaskDecoder(SamRosBase):
     def _project_by_cluster(self, points):
         labels = points[:,5].astype(int)
         coords = []
+        objlidars = []
         for i in range(labels.max() + 1):
             cluster = points[labels == i]
             n_cluster_point = cluster.shape[0]
@@ -282,15 +285,21 @@ class SamRosMaskDecoder(SamRosBase):
                 cluster = cluster[shuffle]
             cluster = cluster[:, :3].astype(np.float32)
             tmp_point_cloud = np.hstack((cluster, np.ones([len(cluster), 1])))
-            cluster = np.dot(tmp_point_cloud, self.lidar_param.transform.T)
-            reTransform = cv2.projectPoints(cluster, self.lidar_param.rMat, self.lidar_param.tVec, self.lidar_param.camera_matrix, self.lidar_param.distortion)
+            
+            # cluster = np.dot(tmp_point_cloud, self.lidar_param.transform.T)
+            # reTransform = cv2.projectPoints(cluster, self.lidar_param.rMat, self.lidar_param.tVec, self.lidar_param.camera_matrix, self.lidar_param.distortion)
+            cluster1 = np.dot(tmp_point_cloud, self.lidar_param.transform.T)
+            reTransform = cv2.projectPoints(cluster1, self.lidar_param.rMat, self.lidar_param.tVec, self.lidar_param.camera_matrix, self.lidar_param.distortion)
+
             coord = reTransform[0][:, 0].astype(int)
             filter = np.where((coord[:, 0] < self.origin_image_shape[1]) & (coord[:, 1] < self.origin_image_shape[0]) & (coord[:, 0] >= 0) & (coord[:, 1] >= 0))
             coord = coord[filter]
             if coord.shape[0] == 0:
                 continue
             coords.append(coord)
-        return coords
+            objlidars.append(cluster)
+
+        return coords, objlidars
 
     def _allocate_buffers(self):
         drv.init()
@@ -303,7 +312,7 @@ class SamRosMaskDecoder(SamRosBase):
 
     def _infer_with_lidar(self, inputs):
         image_embedding, lidar_points = inputs
-        coords = self._project_by_cluster(lidar_points)
+        coords, objlidars = self._project_by_cluster(lidar_points)
         n_classes = len(coords)
         if self.cluster_mode:
             coords_labels, coords_resample = resample_coords(coords, max_point=self.max_point, n_resample=2)
@@ -347,6 +356,7 @@ class SamRosMaskDecoder(SamRosBase):
             coord_input = self.transf.apply_coords(coord_input, self.origin_image_shape)
             ort_inputs["point_coords"] = coord_input
             ort_inputs["point_labels"] = label_input
+
             iou_token_out, iou_preds, masks = self.model.torch_inference(ort_inputs)
             if self.cluster_mode:
                 # sam_box = batched_mask_to_box(masks>0)
@@ -372,7 +382,7 @@ class SamRosMaskDecoder(SamRosBase):
             mask_data.cat(batch_data)
 
         if len(mask_data.items()) == 0:
-            return coords, res
+            return coords, objlidars, res
         if self.cluster_mode:
             iou_threshold = 0.5
         else:
@@ -395,7 +405,7 @@ class SamRosMaskDecoder(SamRosBase):
                 "iou_token_out": mask_data["iou_token_out"][idx],
             }
             res.append(ann)
-        return coords, res
+        return coords, objlidars, res
 
     def _infer_image(self, inputs):
         image_embedding = inputs[0]

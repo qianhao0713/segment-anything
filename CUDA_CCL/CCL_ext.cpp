@@ -27,7 +27,11 @@ void torch_ccl(torch::Tensor& label, const torch::Tensor& mask, size_t n_row, si
         }
     }
     // cudaDeviceSynchronize();
+    // cudaSetDevice(0);
+
+    // cudaDeviceSynchronize();
     cudaSetDevice(0);
+
     timer.Stop();
     // std::cout << "GPU code ran in: " << timer.Elapsed() << "ms" << std::endl;
 }
