@@ -1,4 +1,4 @@
 {
-    "trt_path": "/home/qianhao/segment-anything/weights/sam_freespace_encoder_folded.trt",
-    "buffer_size": 10
+    "trt_path": "/home/gywrc-s1/qianhao/workspace/segment-anything/weights/trt/sam_encoder_vith.trt",
+    "buffer_size": 200
 }

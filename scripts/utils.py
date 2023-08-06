@@ -63,8 +63,9 @@ def show_lidar_result(img, coords, res, show_mask=False, video_writer=None):
     cv2.namedWindow("test", 0)
     cv2.resizeWindow("test", 1000, 600)
     if coords is not None:
-        for coord in coords:
+        for i, coord in enumerate(coords):
             color = [255,0,0]
+            # color = random_colors[i]
             for pixel in coord:
                 pixel = pixel.astype('int32')
                 img = cv2.circle(img, pixel, 3, color, 3)
@@ -75,7 +76,8 @@ def show_lidar_result(img, coords, res, show_mask=False, video_writer=None):
         img = cv2.rectangle(img, [x, y], [x+w, y+h], color, 2)
         if show_mask:
             mask=res[i]['segmentation']
-            img[mask]=color
+            if mask is not None:
+                img[mask]=color
     cv2.imshow("test", img)
     if video_writer:
         video_writer.write(img)   

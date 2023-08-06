@@ -1,6 +1,6 @@
 {
-    "trt_path": "/home/qianhao/segment-anything/weights/sam_vit_h_mask_decoder_folded.trt",
-    "points_per_batch": 64,
+    "trt_path": "/home/gywrc-s1/qianhao/workspace/segment-anything/weights/trt/sam_mask_decoder_vith2.trt",
+    "points_per_batch": 32,
     "max_point": 20,
     "origin_image_shape": [1080, 1920],
     "use_lidar": true,

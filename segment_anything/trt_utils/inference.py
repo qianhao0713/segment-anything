@@ -29,6 +29,8 @@ class TRTInference(object):
         # We first load all custom plugins shipped with TensorRT,
         # some of them will be needed during inference
         import torch
+        cuda.init()
+        self.cfx = cuda.Device(device).make_context()
         trt.init_libnvinfer_plugins(TRT_LOGGER, '')
         # Initialize runtime needed for loading TensorRT engine from file
         self.trt_runtime = trt.Runtime(TRT_LOGGER)
@@ -39,8 +41,7 @@ class TRTInference(object):
         print("  * Inference precision - {}".format(trt_engine_datatype))
         print("  * Max batch size - {}\n".format(batch_size))
 
-        cuda.init()
-        self.cfx = cuda.Device(device).make_context()
+
         # If engine is not cached, we need to build it
         if not os.path.exists(trt_engine_path):
             raise Exception('tensorRT engine file not exist')
@@ -63,6 +64,7 @@ class TRTInference(object):
     def torch_inference(self, dict_input, async_infer=False):
         self.cfx.push()
         resize_output = False
+        self.cfx.synchronize()
         for i, binding in enumerate(self.trt_engine):
             if self.trt_engine.binding_is_input(binding):
                 input_tensor = dict_input[binding]
@@ -74,7 +76,9 @@ class TRTInference(object):
                     self.inputs[i] = input_tensor
                     resize_output = True
                 else:
-                    self.inputs[i][...] = input_tensor
+                    #self.inputs[i][...] = input_tensor
+                    self.inputs[i] = input_tensor
+                    self.bindings[i] = input_tensor.data_ptr()
         if resize_output:
             for i, binding in enumerate(self.trt_engine):
                 if not self.trt_engine.binding_is_input(binding):
