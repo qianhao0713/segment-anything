@@ -293,6 +293,7 @@ class SamRosMaskDecoder(SamRosBase):
     def _project_by_cluster(self, points):
         labels = points[:,5].astype(int)
         coords = []
+        ori_coords = []
         for i in range(labels.max() + 1):
             cluster = points[labels == i]
             n_cluster_point = cluster.shape[0]
@@ -306,10 +307,12 @@ class SamRosMaskDecoder(SamRosBase):
             coord = reTransform[0][:, 0].astype(np.int32)
             filter = np.where((coord[:, 0] < self.origin_image_shape[1]) & (coord[:, 1] < self.origin_image_shape[0]) & (coord[:, 0] >= 0) & (coord[:, 1] >= 0))
             coord = coord[filter]
+            ori_coord = cluster[filter]
             if coord.shape[0] == 0:
                 continue
             coords.append(coord)
-        return coords
+            ori_coords.append(ori_coord)
+        return ori_coords, coords
 
     def _allocate_buffers(self):
         drv.init()
@@ -322,7 +325,7 @@ class SamRosMaskDecoder(SamRosBase):
 
     def _infer_with_lidar(self, inputs):
         image_embedding, lidar_points = inputs
-        coords = self._project_by_cluster(lidar_points)
+        ori_coords, coords = self._project_by_cluster(lidar_points)
         n_classes = len(coords)
 
         orig_lidar_box = np.zeros([n_classes, 4])
@@ -402,7 +405,7 @@ class SamRosMaskDecoder(SamRosBase):
             mask_data.cat(batch_data)
 
         if len(mask_data.items()) == 0:
-            return orig_lidar_box, coords, res
+            return orig_lidar_box, ori_coords, coords, res
         if self.cluster_mode:
             iou_threshold = 0.5
         else:
@@ -426,7 +429,7 @@ class SamRosMaskDecoder(SamRosBase):
                 # "iou_token_out": mask_data["iou_token_out"][idx],
             }
             res.append(ann)
-        return orig_lidar_box, coords, res
+        return orig_lidar_box, ori_coords, coords, res
 
     def _infer_image(self, inputs):
         image_embedding = inputs[0]
