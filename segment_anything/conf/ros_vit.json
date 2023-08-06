@@ -1,4 +1,4 @@
 {
-    "trt_path": "/home/gywrc-s1/qianhao/workspace/segment-anything/weights/trt/sam_encoder_vith.trt",
+    "trt_path": "/home/user/gitcode/depends/segment-anything/weights/sam_encoder_vith.trt",
     "buffer_size": 200
 }

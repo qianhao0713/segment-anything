@@ -258,8 +258,8 @@ class SamRosMaskDecoder(SamRosBase):
         points_scale = np.array(self.origin_image_shape)[None, :]
         self.coord_grids = torch.as_tensor((point_grids * points_scale)[:,None,:], dtype=torch.float32, device=self.device)
         self.label_input = torch.ones([self.points_per_batch, 1], dtype=torch.float32, device=self.device)
-        # self.lidar_param = LidarParam()
-        self.lidar_param = LidarParam2()
+        self.lidar_param = LidarParam()
+        # self.lidar_param = LidarParam2()
         self._allocate_buffers()
 
     def _load_conf(self, conf_file):
@@ -301,7 +301,7 @@ class SamRosMaskDecoder(SamRosBase):
                 cluster = cluster[shuffle]
             cluster = cluster[:, :3].astype(np.float32)
             tmp_point_cloud = np.hstack((cluster, np.ones([len(cluster), 1])))
-            # cluster = np.dot(tmp_point_cloud, self.lidar_param.transform.T)
+            cluster = np.dot(tmp_point_cloud, self.lidar_param.transform.T)
             reTransform = cv2.projectPoints(cluster, self.lidar_param.rMat, self.lidar_param.tVec, self.lidar_param.camera_matrix, self.lidar_param.distortion)
             coord = reTransform[0][:, 0].astype(np.int32)
             filter = np.where((coord[:, 0] < self.origin_image_shape[1]) & (coord[:, 1] < self.origin_image_shape[0]) & (coord[:, 0] >= 0) & (coord[:, 1] >= 0))
