@@ -2,7 +2,7 @@
     "trt_path": "/home/gywrc-s1/qianhao/workspace/segment-anything/weights/trt/sam_mask_decoder_vith2.trt",
     "points_per_batch": 16,
     "max_point": 20,
-    "origin_image_shape": [1200, 1920],
+    "origin_image_shape": [1080, 1920],
     "use_lidar": true,
     "cluster_mode": true,
     "project_max_point": 100,

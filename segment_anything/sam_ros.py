@@ -91,15 +91,15 @@ def process_data(data, cluster_mode=False, use_lidar=False, extra_filter=None):
     
 
 def get_lidar_iou(bbox1, bbox2):
-    b1, _ = bbox1.shape
-    b2, n2, _ = bbox2.shape
-    bbox1 = torch.tile(bbox1[:,None,:], [1, n2, 1])
-    x1_max = torch.maximum(bbox1[:,:,0], bbox2[:,:,0])
-    y1_max = torch.maximum(bbox1[:,:,1], bbox2[:,:,1])
-    x2_min = torch.minimum(bbox1[:,:,2], bbox2[:,:,2])
-    y2_min = torch.minimum(bbox1[:,:,3], bbox2[:,:,3])
+    # b1, _ = bbox1.shape
+    # b2, n2, _ = bbox2.shape
+    # bbox1 = torch.tile(bbox1[:,None,:], [1, n2, 1])
+    x1_max = torch.maximum(bbox1[:,0], bbox2[:,0])
+    y1_max = torch.maximum(bbox1[:,1], bbox2[:,1])
+    x2_min = torch.minimum(bbox1[:,2], bbox2[:,2])
+    y2_min = torch.minimum(bbox1[:,3], bbox2[:,3])
     inter_area = torch.maximum(x2_min-x1_max, torch.tensor(0)) * torch.maximum(y2_min-y1_max, torch.tensor(0))
-    outer_area = (bbox1[:,:,2]-bbox1[:,:,0]) * (bbox1[:,:,3]-bbox1[:,:,1]) + (bbox2[:,:,2]-bbox2[:,:,0]) * (bbox2[:,:,3]-bbox2[:,:,1]) - inter_area
+    outer_area = (bbox1[:,2]-bbox1[:,0]) * (bbox1[:,3]-bbox1[:,1]) + (bbox2[:,2]-bbox2[:,0]) * (bbox2[:,3]-bbox2[:,1]) - inter_area
     iou = inter_area / outer_area
     return iou
 
@@ -390,12 +390,14 @@ class SamRosMaskDecoder(SamRosBase):
             #     _, iou_preds, masks = self.model.torch_inference(ort_inputs)
             #print(iou_preds)
             if self.cluster_mode:
-                sam_box = batched_mask_to_box(masks>0)
-                lidar_iou=get_lidar_iou(lidar_box, sam_box)
+                # sam_box = batched_mask_to_box(masks>0)
+                # lidar_iou=get_lidar_iou(lidar_box, sam_box)
+                _, n2 = iou_preds.shape
+                lidar_box = torch.tile(lidar_box[:,None,:], [1, n2, 1])
                 batch_data = MaskData(
                    masks=masks.flatten(0, 1),
                    iou_preds=iou_preds.flatten(0, 1),
-                   lidar_iou=lidar_iou.flatten(0, 1),
+                   lidar_box=lidar_box.flatten(0, 1),
                    points=torch.as_tensor(coord_input.repeat([masks.shape[1],1,1])),
                    cluster_label=torch.as_tensor(cluster_input.repeat([masks.shape[1]]))
                 #    iou_token_out=iou_token_out.flatten(0, 1)

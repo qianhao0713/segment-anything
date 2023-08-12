@@ -60,7 +60,8 @@ def test_lidar():
     args = parse_args()
     device = args.device
     pcd_pairs = utils.get_pcd_pair(IMG_DIR, LIDAR_DIR)
-
+    fourcc = cv2.VideoWriter_fourcc(*'XVID')
+    vw = cv2.VideoWriter('output.avi', fourcc, 10.0, (1920,  1080))
     vit_model = build_ros_model('vit', device)
     mask_decoder_model = build_ros_model('mask_decoder', device)
     pointcloud_cluster_tool = pointcloud_cluster.PyPointCloud()
@@ -73,7 +74,7 @@ def test_lidar():
         points = points[points[:,5]>=0]
         image_embedding, _ = vit_model.infer(bgr_image)
         coords, res = mask_decoder_model.infer(image_embedding, points)
-        utils.show_lidar_result(ori_image, coords=coords, res=res, show_mask=True)
+        utils.show_lidar_result(ori_image, coords=coords, res=res, show_mask=True, video_writer=vw)
 
 def test_multiprocess():
     import multiprocessing as mp
@@ -126,5 +127,4 @@ def test_multiprocess():
 
 
 if __name__ == '__main__':
-    #test_multiprocess()
-    test_freespace()
+    test_lidar()
