@@ -1,5 +1,5 @@
 {
-    "trt_path": "/home/qianhao/segment-anything/weights/sam_freespace_decoder_folded.trt",
+    "trt_path": "/home/user/gitcode/depends/segment-anything/weights/sam_seghead_vith.trt",
     "origin_image_shape": [1080, 1920]
     
 }
