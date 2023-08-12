@@ -1,9 +1,15 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/eigen.h>
 #include <chrono>
-#include<omp.h>
+#include <boost/python.hpp>
+#include <omp.h>
+#include <sensor_msgs/msg/point_cloud.h>
+#include <sensor_msgs/msg/point_cloud2.h>
+#include <sensor_msgs/point_cloud_conversion.hpp>
+#include <rclcpp/serialization.hpp>
 #include "PointCloudTool.hpp"
 #include "tool.hpp"
+
 namespace py = pybind11;
 
 class PyPointCloud {
@@ -12,27 +18,15 @@ public:
         mcloud = new pointCloud;
     }
     Eigen::MatrixXd execute_cluster(Eigen::MatrixXd& mat) {
-        auto t0 = chrono::system_clock::now();
         init();
         load_input(mat);
-        auto t1 = chrono::system_clock::now();
         newtool.NewGroundSeg(mcloud);
-        auto t2 = chrono::system_clock::now();
         std::vector< std::vector< std::vector<pointX> > > AllClusters = newtool.PointCloudCluster(mcloud);
-        auto t3 = chrono::system_clock::now();
         vector<OneCluster> FinalCLuster= newtool.CombineClusterResult(&AllClusters);
-        auto t4 = chrono::system_clock::now();
         assign_label(mat, AllClusters, FinalCLuster);
-        auto t5 = chrono::system_clock::now();
-        int d0 = chrono::duration_cast<chrono::milliseconds>(t1-t0).count();
-        int d1 = chrono::duration_cast<chrono::milliseconds>(t2-t1).count();
-        int d2 = chrono::duration_cast<chrono::milliseconds>(t3-t2).count();
-        int d3 = chrono::duration_cast<chrono::milliseconds>(t4-t3).count();
-        int d4 = chrono::duration_cast<chrono::milliseconds>(t5-t4).count();
-        int d5 = chrono::duration_cast<chrono::milliseconds>(t5-t0).count();
-        // std::cout<<"execute_time: "<<d0<<", "<<d1<<", "<<d2<<", "<<d3<<", "<<d4<<", all: "<<d5<<std::endl;
         return mat;
     }
+
 private:
     pointCloud *mcloud;
     PointcloudTool newtool;
@@ -68,6 +62,7 @@ private:
             mat(i, 5) = -1.0;
         }
     }
+
 
     void assign_label(Eigen::MatrixXd& mat, std::vector< std::vector< std::vector<pointX>>>& AllClusters, vector<OneCluster>& FinalCLuster) {
         for (int i = 0; i < FinalCLuster.size(); i++) {

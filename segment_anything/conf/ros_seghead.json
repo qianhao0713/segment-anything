@@ -1,5 +1,4 @@
 {
-    "trt_path": "/home/user/gitcode/depends/segment-anything/weights/sam_seghead_vith.trt",
+    "trt_path": "/home/gywrc-s1/qianhao/workspace/segment-anything/weights/trt/sam_seghead_vith.trt",
     "origin_image_shape": [1080, 1920]
-    
 }

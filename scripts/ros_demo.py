@@ -7,8 +7,8 @@ import time
 
 # IMG_DIR = '/home/user/gitcode/depends/segment-anything/data/hby_data/image_data'
 # LIDAR_DIR = '/home/user/gitcode/depends/segment-anything/data/hby_data/fulidars'
-IMG_DIR = '/raid/qianhao/hby_data_0308/image_data'
-LIDAR_DIR = '/raid/qianhao/hby_data_0308/fulidars'
+IMG_DIR = '/home/gywrc-s1/qianhao/data/hby_data_backup/image_data'
+LIDAR_DIR = '/home/gywrc-s1/qianhao/data/hby_data_backup/fulidars'
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -52,7 +52,7 @@ def test_freespace():
         pred_img = torch.softmax(masks, dim=1).cpu().float().detach().numpy()[0][1]
         index = np.where(pred_img > 0.95)
         ori_image[index] = mask_color
-        show_image(ori_image)
+        # show_image(ori_image)
 
 def test_lidar():
     import numpy as np
@@ -126,4 +126,5 @@ def test_multiprocess():
 
 
 if __name__ == '__main__':
-    test_multiprocess()
+    #test_multiprocess()
+    test_freespace()

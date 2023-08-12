@@ -2,7 +2,7 @@ import os
 import argparse
 import numpy as np
 import pycuda.driver as cuda
-import pycuda.autoinit
+# import pycuda.autoinit
 import tensorrt as trt
 import time
 

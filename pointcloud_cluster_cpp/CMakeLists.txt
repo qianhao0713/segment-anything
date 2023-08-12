@@ -18,12 +18,15 @@ if(NOT pybind11_DIR)
 endif()
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  add_compile_options(-Wall -Wextra -Wpedantic -fopenmp) 
+  add_compile_options(-Wall -Wextra -Wpedantic -openmp) 
 endif()
 
 # find_package(ament_cmake REQUIRED)
 find_package(pybind11 REQUIRED)
 pybind11_add_module(pointcloud_cluster src/PyPointCloud.cpp)
+
+find_package(sensor_msgs REQUIRED)
+find_package(Boost REQUIRED)
 
 find_package(Eigen3 REQUIRED)
 include_directories(
@@ -38,6 +41,8 @@ find_package(OpenCV REQUIRED)
 target_include_directories(pointcloud_cluster
 PUBLIC
   ${OpenCV_INCLUDE_DIRS}
+  ${sensor_msgs_INCLUDE_DIRS}
+  ${Boost_INCLUDE_DIRS}
 )
 target_link_libraries(pointcloud_cluster
 PUBLIC

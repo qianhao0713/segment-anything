@@ -46,7 +46,7 @@ def resample_coords(coords, max_point, n_resample):
                 labels.append(i)
     return labels, coords_resampled
 
-def process_data(data, cluster_mode=False, use_lidar=False):
+def process_data(data, cluster_mode=False, use_lidar=False, extra_filter=None):
     pred_iou_thresh = 0.88
     mask_threshold = 0.0
     stability_score_thresh = 0.95
@@ -70,6 +70,9 @@ def process_data(data, cluster_mode=False, use_lidar=False):
     data.filter(keep_mask)
     # Threshold masks and calculate boxes
     data["masks"] = data["masks"] > mask_threshold
+    if extra_filter:
+        keep_mask = extra_filter(data["masks"])
+        data.filter(keep_mask)
     # if use_lidar:
     #     mask_label = torch.zeros_like(data["masks"], dtype=torch.int32, device=data["masks"].device)
     #     cuda_ccl.torch_ccl(mask_label, data["masks"], mask_label.shape[1], mask_label.shape[2])
@@ -85,6 +88,7 @@ def process_data(data, cluster_mode=False, use_lidar=False):
     #         #mask_i[mask_label_i!=maxlabel] = False
     #         mask_i[mask_label_i!=mode_value] = False
     data["boxes"] = batched_mask_to_box(data["masks"])
+    
 
 def get_lidar_iou(bbox1, bbox2):
     b1, _ = bbox1.shape
@@ -127,15 +131,19 @@ class LidarParam2:
         self.tVec = np.array([-0.3270823619145787, 1.994427053985835, -0.2688515838179673], dtype=np.float32).reshape(1, 3)
 
 class SamRosBase(metaclass=ABCMeta):
-    def __init__(self, conf_file, device=0):
+    def __init__(self, conf_file, device=0, **kwargs):
         self.device = device
-        self._load_conf(conf_file)
+        self._load_conf(conf_file, **kwargs)
         self._load_model()
 
     @abstractmethod
-    def _load_conf(self, conf_file):
+    def _load_conf(self, conf_file, **kwargs):
         with open(conf_file) as f:
             self.conf = json.load(f)
+        for k, v in self.conf.items():
+            self.__setattr__(k, v)
+        for k, v in kwargs.items():
+            self.__setattr__(k, v)
 
     @abstractmethod
     def _load_model(self):
@@ -158,10 +166,8 @@ class SamRosVit(SamRosBase):
         self.pixel_mean = torch.Tensor(pixel_mean_raw).view(-1, 1, 1).to(self.device)
         self.pixel_std = torch.Tensor(pixel_std_raw).view(-1, 1, 1).to(self.device)
 
-    def _load_conf(self, conf_file):
-        super()._load_conf(conf_file)
-        self.trt_path = self.conf.get('trt_path')
-        self.buffer_size = self.conf.get('buffer_size')
+    def _load_conf(self, conf_file, **kwargs):
+        super()._load_conf(conf_file, **kwargs)
 
     def _load_model(self):
         self.model = trt_infer.TRTInference(trt_engine_path=self.trt_path, is_torch_infer=True, device=self.device)
@@ -227,10 +233,8 @@ class SamRosSeghead(SamRosBase):
         super().__init__(conf_file, device)
         self.orig_size = torch.as_tensor(self.origin_image_shape, device=self.device)
 
-    def _load_conf(self, conf_file):
-        super()._load_conf(conf_file)
-        self.trt_path = self.conf.get('trt_path')
-        self.origin_image_shape = self.conf.get('origin_image_shape')
+    def _load_conf(self, conf_file, **kwargs):
+        super()._load_conf(conf_file, **kwargs)
 
     def _load_model(self):
         dynamic_shape_value = {'ori_size' : self.origin_image_shape}
@@ -247,8 +251,8 @@ class SamRosSeghead(SamRosBase):
         return masks
 
 class SamRosMaskDecoder(SamRosBase):
-    def __init__(self, conf_file, device=0):
-        super().__init__(conf_file, device)
+    def __init__(self, conf_file, device=0, **kwargs):
+        super().__init__(conf_file, device, **kwargs)
         self.mask_input = torch.zeros((1, 1, 256, 256), dtype=torch.float32, device=self.device)
         self.has_mask_input = torch.zeros(1, dtype=torch.float32, device=self.device)
         self.orig_size = torch.as_tensor(self.origin_image_shape, dtype=torch.int32, device=self.device)
@@ -261,26 +265,29 @@ class SamRosMaskDecoder(SamRosBase):
         self.lidar_param = LidarParam()
         # self.lidar_param = LidarParam2()
         self._allocate_buffers()
+        self.extra_filter_func = None
 
-    def _load_conf(self, conf_file):
-        super()._load_conf(conf_file)
-        self.trt_path = self.conf.get('trt_path')
-        self.points_per_batch = self.conf.get('points_per_batch')
-        self.max_point = self.conf.get('max_point')
-        self.origin_image_shape = self.conf.get('origin_image_shape')
-        self.use_lidar = self.conf.get('use_lidar')
-        self.cluster_mode = self.conf.get('cluster_mode')
-        self.project_max_point = self.conf.get('project_max_point')
-        self.point_per_side = self.conf.get('point_per_side')
-        self.partial_width = self.conf.get('partial_width')
-        self.partial_height = self.conf.get('partial_height')
+    def _load_conf(self, conf_file, **kwargs):
+        super()._load_conf(conf_file, **kwargs)
+        # self.trt_path = self.conf.get('trt_path')
+        # self.points_per_batch = self.conf.get('points_per_batch')
+        # self.max_point = self.conf.get('max_point')
+        # self.origin_image_shape = self.conf.get('origin_image_shape')
+        # self.use_lidar = self.conf.get('use_lidar')
+        # self.cluster_mode = self.conf.get('cluster_mode')
+        # self.project_max_point = self.conf.get('project_max_point')
+        # self.point_per_side = self.conf.get('point_per_side')
+        # self.partial_width = self.conf.get('partial_width')
+        # self.partial_height = self.conf.get('partial_height')
         if self.cluster_mode:
             self.pred_iou_thresh = 0.2
             self.stability_score_thresh = 0.75
         else:
             self.pred_iou_thresh = 0.88
             self.stability_score_thresh = 0
-
+            
+    def set_filter_func(self, func):
+        self.extra_filter_func = func
 
     def _load_model(self):
         dynamic_shape = {}
@@ -445,14 +452,14 @@ class SamRosMaskDecoder(SamRosBase):
         for (coord_input,) in batch_iterator(self.points_per_batch, self.coord_grids):
             coord_input = self.transf.apply_coords(coord_input, self.origin_image_shape)
             ort_inputs["point_coords"] = coord_input
-            iou_token_out, iou_preds, masks = self.model.torch_inference(ort_inputs)
+            _, iou_preds, masks = self.model.torch_inference(ort_inputs)
             batch_data = MaskData(
                 masks=masks.flatten(0, 1),
                 iou_preds=iou_preds.flatten(0, 1),
-                iou_token_out=iou_token_out.flatten(0, 1),
-                points=torch.as_tensor(coord_input.repeat([masks.shape[1],1,1])),
+                # iou_token_out=iou_token_out.flatten(0, 1),
+                # points=torch.as_tensor(coord_input.repeat([masks.shape[1],1,1])),
             )
-            process_data(batch_data)
+            process_data(batch_data, extra_filter=self.extra_filter_func)
             mask_data.cat(batch_data)
         keep_by_nms = batched_nms(
             mask_data["boxes"].float(),
@@ -461,14 +468,14 @@ class SamRosMaskDecoder(SamRosBase):
             iou_threshold=0.77,
         )
         mask_data.filter(keep_by_nms)
-        mask_data["segmentations"] = mask_data["masks"]
+        # mask_data["segmentations"] = mask_data["masks"]
         mask_data.to_numpy()
-        for idx in range(len(mask_data["segmentations"])):
+        for idx in range(len(mask_data["masks"])):
             ann = {
-                "segmentation": mask_data["segmentations"][idx],
+                "segmentation": mask_data["masks"][idx],
                 "bbox": box_xyxy_to_xywh(mask_data["boxes"][idx]).tolist(),
-                "point_coords": [mask_data["points"][idx].tolist()],
-                "iou_token_out": mask_data["iou_token_out"][idx],
+                # "point_coords": [mask_data["points"][idx].tolist()],
+                # "iou_token_out": mask_data["iou_token_out"][idx],
             }
             res.append(ann)
         return res
@@ -478,6 +485,7 @@ class SamRosMaskDecoder(SamRosBase):
             res = self._infer_with_lidar(inputs)
         else:
             res = self._infer_image(inputs)
+        torch.cuda.empty_cache()
         return res
 
     def get_buffer(self, buffer, check_buffer):
