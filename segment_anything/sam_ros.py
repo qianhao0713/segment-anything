@@ -52,13 +52,9 @@ def process_data(data, cluster_mode=False, use_lidar=False, extra_filter=None):
     stability_score_thresh = 0.95
     stability_score_offset = 1.0
     # Filter by predicted IoU
-    if use_lidar:
-        stability_score_thresh = 0.5
-        if cluster_mode:
-            lidar_iou_thresh = 0.5
-            keep_mask = data["lidar_iou"] > lidar_iou_thresh
-            data.filter(keep_mask)
-            pred_iou_thresh = 0.5
+    if use_lidar and cluster_mode:
+        stability_score_thresh = 0.8
+        pred_iou_thresh = 0.5
     if pred_iou_thresh > 0.0:
         keep_mask = data["iou_preds"] > pred_iou_thresh
         data.filter(keep_mask)
@@ -88,6 +84,11 @@ def process_data(data, cluster_mode=False, use_lidar=False, extra_filter=None):
     #         #mask_i[mask_label_i!=maxlabel] = False
     #         mask_i[mask_label_i!=mode_value] = False
     data["boxes"] = batched_mask_to_box(data["masks"])
+    if cluster_mode:
+        lidar_iou = get_lidar_iou(data["boxes"], data["lidar_box"])
+        lidar_iou_thresh = 0.5
+        keep_mask = lidar_iou > lidar_iou_thresh
+        data.filter(keep_mask)
     
 
 def get_lidar_iou(bbox1, bbox2):
@@ -156,6 +157,7 @@ class SamRosBase(metaclass=ABCMeta):
     def __del__(self):
         if self.model is not None:
             self.model.cfx.pop()
+            del self.model
 
 class SamRosVit(SamRosBase):
     def __init__(self, conf_file, device=0):
@@ -269,22 +271,6 @@ class SamRosMaskDecoder(SamRosBase):
 
     def _load_conf(self, conf_file, **kwargs):
         super()._load_conf(conf_file, **kwargs)
-        # self.trt_path = self.conf.get('trt_path')
-        # self.points_per_batch = self.conf.get('points_per_batch')
-        # self.max_point = self.conf.get('max_point')
-        # self.origin_image_shape = self.conf.get('origin_image_shape')
-        # self.use_lidar = self.conf.get('use_lidar')
-        # self.cluster_mode = self.conf.get('cluster_mode')
-        # self.project_max_point = self.conf.get('project_max_point')
-        # self.point_per_side = self.conf.get('point_per_side')
-        # self.partial_width = self.conf.get('partial_width')
-        # self.partial_height = self.conf.get('partial_height')
-        if self.cluster_mode:
-            self.pred_iou_thresh = 0.2
-            self.stability_score_thresh = 0.75
-        else:
-            self.pred_iou_thresh = 0.88
-            self.stability_score_thresh = 0
             
     def set_filter_func(self, func):
         self.extra_filter_func = func
@@ -391,7 +377,6 @@ class SamRosMaskDecoder(SamRosBase):
             #print(iou_preds)
             if self.cluster_mode:
                 # sam_box = batched_mask_to_box(masks>0)
-                # lidar_iou=get_lidar_iou(lidar_box, sam_box)
                 _, n2 = iou_preds.shape
                 lidar_box = torch.tile(lidar_box[:,None,:], [1, n2, 1])
                 batch_data = MaskData(
@@ -433,7 +418,7 @@ class SamRosMaskDecoder(SamRosBase):
             ann = {
                 "segmentation": mask_data["segmentations"][idx],
                 "bbox": box_xyxy_to_xywh(mask_data["boxes"][idx]).tolist(),
-                "point_coords": [mask_data["points"][idx].tolist()],
+                "iou_preds": [mask_data["iou_preds"][idx].tolist()],
                 "cluster_label": [mask_data["cluster_label"][idx]]
                 # "iou_token_out": mask_data["iou_token_out"][idx],
             }
