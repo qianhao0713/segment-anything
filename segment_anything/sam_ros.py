@@ -156,7 +156,9 @@ class SamRosBase(metaclass=ABCMeta):
 
     def __del__(self):
         if self.model is not None:
+            self.model.cfx.push()
             self.model.cfx.pop()
+            del self.model.cfx
             del self.model
 
 class SamRosVit(SamRosBase):
@@ -228,7 +230,11 @@ class SamRosVit(SamRosBase):
 
     def __del__(self):
         self.ctx_gpu.pop()
-        self.model.cfx.pop()
+        if self.model is not None:
+            self.model.cfx.push()
+            self.model.cfx.pop()
+            del self.model.cfx
+            del self.model
 
 class SamRosSeghead(SamRosBase):
     def __init__(self, conf_file, device=0):
@@ -313,8 +319,13 @@ class SamRosMaskDecoder(SamRosBase):
         self.ctx_gpu = dev.make_context()
 
     def __del__(self):
-        self.model.cfx.pop()
         self.ctx_gpu.pop()
+        del self.ctx_gpu
+        if self.model is not None:
+            self.model.cfx.push()
+            self.model.cfx.pop()
+            del self.model.cfx
+            del self.model
 
     def _infer_with_lidar(self, inputs):
         image_embedding, lidar_points = inputs
