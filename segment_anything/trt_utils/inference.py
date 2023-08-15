@@ -4,6 +4,7 @@ import time
 import tensorrt as trt
 from PIL import Image
 import pycuda.driver as cuda
+cuda.init()
 import numpy as np
 
 from . import common as common
@@ -29,8 +30,8 @@ class TRTInference(object):
         # We first load all custom plugins shipped with TensorRT,
         # some of them will be needed during inference
         import torch
-        cuda.init()
         self.cfx = cuda.Device(device).make_context()
+        self.cfx.push()
         trt.init_libnvinfer_plugins(TRT_LOGGER, '')
         # Initialize runtime needed for loading TensorRT engine from file
         self.trt_runtime = trt.Runtime(TRT_LOGGER)
@@ -60,6 +61,7 @@ class TRTInference(object):
         # Allocate memory for multiple usage [e.g. multiple batch inference]
         input_volume = trt.volume(model_utils.ModelData.INPUT_SHAPE)
         self.numpy_array = np.zeros((self.trt_engine.max_batch_size, input_volume))
+        self.cfx.pop()
 
     def torch_inference(self, dict_input, async_infer=False):
         self.cfx.push()
