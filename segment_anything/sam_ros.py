@@ -156,9 +156,13 @@ class SamRosBase(metaclass=ABCMeta):
 
     def __del__(self):
         if self.model is not None:
-            self.model.cfx.push()
+            cfx = self.model.cfx
             self.model.cfx.pop()
-            del self.model.cfx
+            self.model = None
+            for k, v in self.__dict__.items():
+                self.__setattr__(k, None)
+            torch.cuda.empty_cache()
+            cfx.detach()
             del self.model
 
 class SamRosVit(SamRosBase):
@@ -177,9 +181,9 @@ class SamRosVit(SamRosBase):
         self.model = trt_infer.TRTInference(trt_engine_path=self.trt_path, is_torch_infer=True, device=self.device)
 
     def _allocate_buffers(self):
-        drv.init()
-        dev = drv.Device(self.device)
-        self.ctx_gpu = dev.make_context()
+        # drv.init()
+        # dev = drv.Device(self.device)
+        # self.ctx_gpu = dev.make_context()
         self.buffer_index = -1
         buffer_shape = [1, 256, 64, 64]
         buffer_dtype = np.float32
@@ -228,18 +232,22 @@ class SamRosVit(SamRosBase):
             "shape": [1, 256, 64, 64],
         }
 
-    def __del__(self):
-        self.ctx_gpu.pop()
-        if self.model is not None:
-            self.model.cfx.push()
-            self.model.cfx.pop()
-            del self.model.cfx
-            del self.model
+    # def __del__(self):
+    #     # self.ctx_gpu.pop()
+    #     if self.model is not None:
+    #         cfx = self.model.cfx
+    #         self.model.cfx.pop()
+    #         self.model = None
+    #         torch.cuda.empty_cache()
+    #         cfx.detach()
+    #         del cfx
+        
 
 class SamRosSeghead(SamRosBase):
     def __init__(self, conf_file, device=0):
         super().__init__(conf_file, device)
-        self.orig_size = torch.as_tensor(self.origin_image_shape, device=self.device)
+        self.orig_size = torch.tensor(self.origin_image_shape, dtype = torch.int32, device=self.device)
+
 
     def _load_conf(self, conf_file, **kwargs):
         super()._load_conf(conf_file, **kwargs)
@@ -272,7 +280,7 @@ class SamRosMaskDecoder(SamRosBase):
         self.label_input = torch.ones([self.points_per_batch, 1], dtype=torch.float32, device=self.device)
         self.lidar_param = LidarParam()
         # self.lidar_param = LidarParam2()
-        self._allocate_buffers()
+        # self._allocate_buffers()
         self.extra_filter_func = None
 
     def _load_conf(self, conf_file, **kwargs):
@@ -313,19 +321,23 @@ class SamRosMaskDecoder(SamRosBase):
             ori_coords.append(ori_coord)
         return ori_coords, coords
 
-    def _allocate_buffers(self):
-        drv.init()
-        dev = drv.Device(self.device)
-        self.ctx_gpu = dev.make_context()
+    # def _allocate_buffers(self):
+    #     drv.init()
+    #     dev = drv.Device(self.device)
+    #     self.ctx_gpu = dev.make_context()
 
-    def __del__(self):
-        self.ctx_gpu.pop()
-        del self.ctx_gpu
-        if self.model is not None:
-            self.model.cfx.push()
-            self.model.cfx.pop()
-            del self.model.cfx
-            del self.model
+    # def __del__(self):
+    #     # self.ctx_gpu.pop()
+    #     # del self.ctx_gpu
+    #     if self.model is not None:
+    #         cfx = self.model.cfx
+    #         self.model.cfx.pop()
+    #         self.model = None
+    #         for k, v in self.__dict__.items():
+    #             self.__setattr__(k, None)
+    #         torch.cuda.empty_cache()
+    #         cfx.detach()
+    #         del self.model
 
     def _infer_with_lidar(self, inputs):
         image_embedding, lidar_points = inputs
@@ -497,6 +509,5 @@ class SamRosMaskDecoder(SamRosBase):
         check_tensor = torch.zeros([1], dtype=torch.int32, device=self.device)
         drv.memcpy_dtod(image_embeddings.data_ptr(), x_ptr, trt.volume(image_embeddings.shape)*image_embeddings.element_size())
         drv.memcpy_dtod(check_tensor.data_ptr(), c_ptr, 4)
-        self.ctx_gpu.synchronize()
         return image_embeddings, check_tensor.item()
 
