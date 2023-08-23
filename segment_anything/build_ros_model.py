@@ -11,7 +11,8 @@ def build_ros_model(node, device, **kwargs):
     if node == 'seghead':
         return SamRosSeghead(
             conf_file='%s/ros_seghead.json' % conf_dir,
-            device=device
+            device=device,
+            **kwargs
         )
     if node == 'mask_decoder':
         return SamRosMaskDecoder(

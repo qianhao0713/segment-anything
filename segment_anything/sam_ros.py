@@ -14,6 +14,7 @@ from segment_anything.utils.transforms import ResizeLongestSide
 from segment_anything.utils.amg import build_point_grid, batch_iterator, MaskData, calculate_stability_score, batched_mask_to_box, area_from_mask, box_xyxy_to_xywh
 from torchvision.ops.boxes import batched_nms
 from CUDA_CCL import cuda_ccl
+# from CoordinateTrans0730.lib import coord_trans
 
 
 def get_preprocess_shape(oldh: int, oldw: int, long_side_length: int) -> Tuple[int, int]:
@@ -46,11 +47,15 @@ def resample_coords(coords, max_point, n_resample):
                 labels.append(i)
     return labels, coords_resampled
 
-def process_data(data, cluster_mode=False, use_lidar=False, extra_filter=None):
+def process_data(data, cluster_mode=False, use_lidar=False, extra_filter=None, pred_iou_thresh_=None, stability_score_thresh_=None):
     pred_iou_thresh = 0.88
     mask_threshold = 0.0
     stability_score_thresh = 0.95
     stability_score_offset = 1.0
+    if pred_iou_thresh_:
+        pred_iou_thresh = pred_iou_thresh_
+    if stability_score_thresh_:
+        stability_score_thresh = stability_score_thresh_
     # Filter by predicted IoU
     if use_lidar and cluster_mode:
         stability_score_thresh = 0.8
@@ -244,8 +249,8 @@ class SamRosVit(SamRosBase):
         
 
 class SamRosSeghead(SamRosBase):
-    def __init__(self, conf_file, device=0):
-        super().__init__(conf_file, device)
+    def __init__(self, conf_file, device=0, **kwargs):
+        super().__init__(conf_file, device, **kwargs)
         self.orig_size = torch.tensor(self.origin_image_shape, dtype = torch.int32, device=self.device)
 
 
@@ -280,6 +285,7 @@ class SamRosMaskDecoder(SamRosBase):
         self.label_input = torch.ones([self.points_per_batch, 1], dtype=torch.float32, device=self.device)
         self.lidar_param = LidarParam()
         # self.lidar_param = LidarParam2()
+        # self.trans_coord_tool = coord_trans.CoordTrans()
         # self._allocate_buffers()
         self.extra_filter_func = None
 
@@ -308,6 +314,17 @@ class SamRosMaskDecoder(SamRosBase):
                 shuffle = np.random.randint(0, n_cluster_point, size=self.project_max_point)
                 cluster = cluster[shuffle]
             cluster = cluster[:, :3].astype(np.float32)
+
+            # tmp_points = []
+            # tmp_ori_points = []
+            # for point3d in cluster:
+            #     point_x, point_y = self.trans_coord_tool.trans(point3d[0], point3d[1], point3d[2])
+            #     if point_x < self.origin_image_shape[1] and point_x > 0 and point_y < self.origin_image_shape[0] and point_y > 0:
+            #         tmp_points.append([int(point_x), int(point_y)])
+            #         tmp_ori_points.append([point3d[0], point3d[1], point3d[2]])
+            # coord = np.array(tmp_points, dtype=np.int32)
+            # ori_coord = np.array(tmp_ori_points, dtype=np.float32)
+
             tmp_point_cloud = np.hstack((cluster, np.ones([len(cluster), 1])))
             cluster = np.dot(tmp_point_cloud, self.lidar_param.transform.T)
             reTransform = cv2.projectPoints(cluster, self.lidar_param.rMat, self.lidar_param.tVec, self.lidar_param.camera_matrix, self.lidar_param.distortion)
@@ -315,6 +332,7 @@ class SamRosMaskDecoder(SamRosBase):
             filter = np.where((coord[:, 0] < self.origin_image_shape[1]) & (coord[:, 1] < self.origin_image_shape[0]) & (coord[:, 0] >= 0) & (coord[:, 1] >= 0))
             coord = coord[filter]
             ori_coord = cluster[filter]
+
             if coord.shape[0] == 0:
                 continue
             coords.append(coord)
@@ -345,6 +363,8 @@ class SamRosMaskDecoder(SamRosBase):
         n_classes = len(coords)
 
         orig_lidar_box = np.zeros([n_classes, 4])
+        if self.model == None:
+            return orig_lidar_box, ori_coords, coords, []
         if self.cluster_mode:
             coords_labels, coords_resample = resample_coords(coords, max_point=self.max_point, n_resample=2)
             n_resampled_class = len(coords_resample)
@@ -385,6 +405,7 @@ class SamRosMaskDecoder(SamRosBase):
         }
         res = []
         mask_data = MaskData()
+
         for (coord_input, label_input, lidar_box, cluster_input) in batch_iterator(self.points_per_batch, coords_input, labels_input, lidar_boxes, cluster_arr):
             coord_input = self.transf.apply_coords(coord_input, self.origin_image_shape)
             ort_inputs["point_coords"] = coord_input
@@ -469,7 +490,7 @@ class SamRosMaskDecoder(SamRosBase):
                 # iou_token_out=iou_token_out.flatten(0, 1),
                 # points=torch.as_tensor(coord_input.repeat([masks.shape[1],1,1])),
             )
-            process_data(batch_data, extra_filter=self.extra_filter_func)
+            process_data(batch_data, extra_filter=self.extra_filter_func, pred_iou_thresh_=self.iou_pred_thresh, stability_score_thresh_=self.stability_score_thresh)
             mask_data.cat(batch_data)
         keep_by_nms = batched_nms(
             mask_data["boxes"].float(),
@@ -495,7 +516,6 @@ class SamRosMaskDecoder(SamRosBase):
             res = self._infer_with_lidar(inputs)
         else:
             res = self._infer_image(inputs)
-        torch.cuda.empty_cache()
         return res
 
     def get_buffer(self, buffer, check_buffer):
