@@ -122,14 +122,14 @@ class LidarParam:
         self.rMat = np.array([0, 0, 0], dtype=np.float32).reshape(3, 1)
         self.tVec = np.array([0, 0, 0], dtype=np.float32).reshape(1, 3)
         
-class LidarParam2:
-    def __init__(self) -> None:
-        self.camera_matrix = np.array([1400.660521866737, 0, 989.6663020916587,
-                      0, 1397.477295771064, 594.9904177802305,
-                      0.0, 0.0, 1.0]).reshape((3, 3))
-        self.distortion = np.array([[-0.05694747808562394, -0.08329212973455258, -0.0009314071183112955, 0.006712153417379347, 0.2493801178842133]], dtype=np.float32)
-        self.rMat = np.array([1.680647483853886, 0.03782614262625567, 0.003707885488685594], dtype=np.float32).reshape(3, 1)
-        self.tVec = np.array([-0.3270823619145787, 1.994427053985835, -0.2688515838179673], dtype=np.float32).reshape(1, 3)
+# class LidarParam2:
+#     def __init__(self) -> None:
+#         self.camera_matrix = np.array([1400.660521866737, 0, 989.6663020916587,
+#                       0, 1397.477295771064, 594.9904177802305,
+#                       0.0, 0.0, 1.0]).reshape((3, 3))
+#         self.distortion = np.array([[-0.05694747808562394, -0.08329212973455258, -0.0009314071183112955, 0.006712153417379347, 0.2493801178842133]], dtype=np.float32)
+#         self.rMat = np.array([1.680647483853886, 0.03782614262625567, 0.003707885488685594], dtype=np.float32).reshape(3, 1)
+#         self.tVec = np.array([-0.3270823619145787, 1.994427053985835, -0.2688515838179673], dtype=np.float32).reshape(1, 3)
 
 class SamRosBase(metaclass=ABCMeta):
     def __init__(self, conf_file, device=0, **kwargs):
@@ -306,15 +306,15 @@ class SamRosMaskDecoder(SamRosBase):
             n_cluster_point = cluster.shape[0]
             if n_cluster_point > self.project_max_point:
                 shuffle = np.random.randint(0, n_cluster_point, size=self.project_max_point)
-                cluster = cluster[shuffle]
-            cluster = cluster[:, :3].astype(np.float32)
-            tmp_point_cloud = np.hstack((cluster, np.ones([len(cluster), 1])))
-            cluster = np.dot(tmp_point_cloud, self.lidar_param.transform.T)
-            reTransform = cv2.projectPoints(cluster, self.lidar_param.rMat, self.lidar_param.tVec, self.lidar_param.camera_matrix, self.lidar_param.distortion)
+                s_cluster = cluster[shuffle]
+            s_cluster = s_cluster[:, :3].astype(np.float32)
+            tmp_point_cloud = np.hstack((s_cluster, np.ones([len(s_cluster), 1])))
+            s_cluster = np.dot(tmp_point_cloud, self.lidar_param.transform.T)
+            reTransform = cv2.projectPoints(s_cluster, self.lidar_param.rMat, self.lidar_param.tVec, self.lidar_param.camera_matrix, self.lidar_param.distortion)
             coord = reTransform[0][:, 0].astype(np.int32)
             filter = np.where((coord[:, 0] < self.origin_image_shape[1]) & (coord[:, 1] < self.origin_image_shape[0]) & (coord[:, 0] >= 0) & (coord[:, 1] >= 0))
             coord = coord[filter]
-            ori_coord = cluster[filter]
+            ori_coord = cluster[filter][:, :3].astype(np.float32)
             if coord.shape[0] == 0:
                 continue
             coords.append(coord)
