@@ -304,9 +304,10 @@ class SamRosMaskDecoder(SamRosBase):
         for i in range(labels.max() + 1):
             cluster = points[labels == i]
             n_cluster_point = cluster.shape[0]
+            s_cluster = cluster[...]
             if n_cluster_point > self.project_max_point:
                 shuffle = np.random.randint(0, n_cluster_point, size=self.project_max_point)
-                s_cluster = cluster[shuffle]
+                s_cluster = s_cluster[shuffle]
             s_cluster = s_cluster[:, :3].astype(np.float32)
             tmp_point_cloud = np.hstack((s_cluster, np.ones([len(s_cluster), 1])))
             s_cluster = np.dot(tmp_point_cloud, self.lidar_param.transform.T)
