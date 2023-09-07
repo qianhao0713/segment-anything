@@ -14,7 +14,7 @@ from segment_anything.utils.transforms import ResizeLongestSide
 from segment_anything.utils.amg import build_point_grid, batch_iterator, MaskData, calculate_stability_score, batched_mask_to_box, area_from_mask, box_xyxy_to_xywh
 from torchvision.ops.boxes import batched_nms
 from CUDA_CCL import cuda_ccl
-
+import time
 
 def get_preprocess_shape(oldh: int, oldw: int, long_side_length: int) -> Tuple[int, int]:
     """
@@ -53,7 +53,7 @@ def process_data(data, cluster_mode=False, use_lidar=False, extra_filter=None):
     stability_score_offset = 1.0
     # Filter by predicted IoU
     if use_lidar and cluster_mode:
-        stability_score_thresh = 0.8
+        stability_score_thresh = 0.6
         pred_iou_thresh = 0.5
     if pred_iou_thresh > 0.0:
         keep_mask = data["iou_preds"] > pred_iou_thresh
@@ -86,7 +86,7 @@ def process_data(data, cluster_mode=False, use_lidar=False, extra_filter=None):
     data["boxes"] = batched_mask_to_box(data["masks"])
     if cluster_mode:
         lidar_iou = get_lidar_iou(data["boxes"], data["lidar_box"])
-        lidar_iou_thresh = 0.5
+        lidar_iou_thresh = 0.3
         keep_mask = lidar_iou > lidar_iou_thresh
         data.filter(keep_mask)
     
@@ -301,6 +301,7 @@ class SamRosMaskDecoder(SamRosBase):
         labels = points[:,5].astype(int)
         coords = []
         ori_coords = []
+
         for i in range(labels.max() + 1):
             cluster = points[labels == i]
             n_cluster_point = cluster.shape[0]
@@ -421,7 +422,6 @@ class SamRosMaskDecoder(SamRosBase):
 
             process_data(batch_data, self.use_lidar, self.cluster_mode)
             mask_data.cat(batch_data)
-
         if len(mask_data.items()) == 0:
             return orig_lidar_box, ori_coords, coords, res
         if self.cluster_mode:
@@ -496,7 +496,7 @@ class SamRosMaskDecoder(SamRosBase):
             res = self._infer_with_lidar(inputs)
         else:
             res = self._infer_image(inputs)
-        torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()
         return res
 
     def get_buffer(self, buffer, check_buffer):
